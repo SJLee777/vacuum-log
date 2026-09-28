@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>진공 로그 뷰어</title>
+<style>
+  :root{
+    --bg:#E9EDEC;
+    --panel:#FFFFFF;
+    --ink:#14212B;
+    --muted:#60747C;
+    --rule:#D2DBDC;
+    --trace:#1D5C87;
+    --cursor:#9B2F6E;
+    --mark-a:#0F7A6B;
+    --mark-b:#A8781A;
+    --focus:#1D5C87;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
+    font-size:14px;
+    line-height:1.45;
+    font-variant-numeric:tabular-nums;
+    display:flex;
+    flex-direction:column;
+  }
+  header{
+    display:flex;
+    align-items:baseline;
+    gap:18px;
+    flex-wrap:wrap;
+    padding:14px 20px 12px;
+    border-bottom:1px solid var(--rule);
+    background:var(--panel);
+  }
+  h1{
+    font-size:15px;
+    font-weight:650;
+    letter-spacing:-0.01em;
+    margin:0;
+  }
+  .filename{
+    font-weight:500;
+    color:var(--ink);
+    max-width:38ch;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .summary{
+    display:flex;
+    gap:20px;
+    flex-wrap:wrap;
+    color:var(--muted);
+    font-size:13px;
+    margin-left:auto;
+  }
+  .summary b{font-weight:600;color:var(--ink)}
+  button, .filebtn{
+    font:inherit;
+    font-size:13px;
+    color:var(--ink);
+    background:var(--panel);
+    border:1px solid var(--rule);
+    border-radius:3px;
+    padding:5px 11px;
+    cursor:pointer;
+  }
+  button:hover,.filebtn:hover{border-color:#9FB2B6;background:#F6F9F9}
+  button[aria-pressed="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
+  button:focus-visible,.filebtn:focus-visible,#plotwrap:focus-visible{
+    outline:2px solid var(--focus);outline-offset:2px;
+  }
+  input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+  select{font:inherit;font-size:13px;border:1px solid var(--rule);border-radius:3px;padding:4px 6px;background:var(--panel);color:var(--ink)}
+
+  main{flex:1;display:flex;min-height:0}
+  #plotcol{flex:1;display:flex;flex-direction:column;min-width:0;padding:14px 0 0 14px}
+  #plotwrap{position:relative;flex:1;min-height:260px;background:var(--panel);border:1px solid var(--rule);border-radius:3px;touch-action:none}
+  #plotwrap canvas{position:absolute;inset:0;width:100%;height:100%}
+  #overlay{cursor:crosshair}
+
+  #controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 0 12px}
+  .hint{color:var(--muted);font-size:12.5px;margin-left:auto;text-align:right}
+
+  aside{
+    width:296px;flex:none;padding:14px 14px 14px 14px;display:flex;flex-direction:column;gap:12px;overflow:auto;
+  }
+  .card{background:var(--panel);border:1px solid var(--rule);border-radius:3px;padding:12px 13px}
+  .card h2{font-size:13px;font-weight:650;margin:0 0 9px;letter-spacing:-0.01em}
+  .card h2 .swatch{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:baseline}
+  dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:5px 12px;align-items:baseline}
+  dt{color:var(--muted);font-size:12.5px;white-space:nowrap}
+  dd{margin:0;text-align:right;font-size:13.5px;font-variant-numeric:tabular-nums}
+  dd.big{font-size:16px;font-weight:600;letter-spacing:-0.01em}
+  .empty{color:var(--muted);font-size:12.5px}
+
+  /* drop / empty state */
+  #dropzone{
+    position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:10px;text-align:center;padding:24px;background:var(--panel);
+  }
+  #dropzone p{margin:0;color:var(--muted);max-width:44ch}
+  #dropzone.hide{display:none}
+  body.dragging #dropzone{outline:2px dashed var(--trace);outline-offset:-10px;display:flex;background:#F4F9FB;z-index:5}
+  #err{color:#8C2B22;font-size:13px}
+
+  @media (max-width:880px){
+    main{flex-direction:column}
+    aside{width:auto;flex-direction:row;flex-wrap:wrap;padding:0 14px 14px}
+    .card{flex:1 1 240px}
+    #plotcol{padding:12px 14px 0}
+    .summary{margin-left:0;width:100%}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>진공 로그 뷰어</h1>
+  <span class="filename" id="filename">파일 없음</span>
+  <select id="dataset" style="display:none" aria-label="데이터 고르기"></select>
+  <label class="filebtn" tabindex="0" id="openlabel">파일 열기<input type="file" id="file" accept=".csv,.txt,.tsv,text/csv,text/plain"></label>
+  <div class="summary" id="summary"></div>
+</header>
+
+<main>
+  <div id="plotcol">
+    <div id="plotwrap" tabindex="0" role="img" aria-label="시간에 따른 압력 그래프">
+      <canvas id="base"></canvas>
+      <canvas id="overlay"></canvas>
+      <div id="dropzone">
+        <strong>CSV 파일을 여기에 놓으세요</strong>
+        <p>시간·압력 열이 있는 로그 파일을 읽습니다. 헤더에 Elapsed_Time, Timestamp, Pressure 같은 이름이 있으면 자동으로 인식합니다. 주소로 열려면 <code>?csv=파일주소</code>를 붙이세요.</p>
+        <button type="button" id="pickbtn">파일 고르기</button>
+        <div id="err"></div>
+      </div>
+    </div>
+    <div id="controls">
+      <button type="button" id="reset">전체 보기</button>
+      <button type="button" id="logtoggle" aria-pressed="true">Y축 로그</button>
+      <button type="button" id="clearmark">마커 지우기</button>
+      <button type="button" id="png">PNG 저장</button>
+      <label for="ycol" class="empty">Y축</label>
+      <select id="ycol"></select>
+      <span class="hint">드래그 = 영역 확대 · 휠 = 가로 확대 · Shift+휠 = 세로 확대 · Shift+드래그 = 이동 · 더블클릭 = 초기화 · 클릭 = 마커</span>
+    </div>
+  </div>
+
+  <aside>
+    <div class="card">
+      <h2><span class="swatch" style="background:var(--cursor)"></span>커서</h2>
+      <dl id="cursor-dl">
+        <dt>압력</dt><dd class="big" id="c-p">–</dd>
+        <dt>경과 시간</dt><dd id="c-t">–</dd>
+        <dt>시각</dt><dd id="c-clock">–</dd>
+        <dt>데이터 번호</dt><dd id="c-i">–</dd>
+      </dl>
+    </div>
+
+    <div class="card">
+      <h2>마커 A · B</h2>
+      <dl>
+        <dt><span class="swatch" style="background:var(--mark-a)"></span>A</dt><dd id="m-a">–</dd>
+        <dt><span class="swatch" style="background:var(--mark-b)"></span>B</dt><dd id="m-b">–</dd>
+      </dl>
+      <div style="height:9px"></div>
+      <dl>
+        <dt>Δt</dt><dd id="d-t">–</dd>
+        <dt>ΔP</dt><dd id="d-p">–</dd>
+        <dt>P<sub>B</sub>/P<sub>A</sub></dt><dd id="d-ratio">–</dd>
+        <dt>변화율</dt><dd id="d-rate">–</dd>
+        <dt>시간당</dt><dd id="d-rateh">–</dd>
+      </dl>
+      <p class="empty" id="m-hint" style="margin:9px 0 0">그래프를 클릭하면 A, 한 번 더 클릭하면 B가 놓입니다.</p>
+    </div>
+
+    <div class="card">
+      <h2>보이는 구간</h2>
+      <dl>
+        <dt>시간 범위</dt><dd id="v-x">–</dd>
+        <dt>압력 범위</dt><dd id="v-y">–</dd>
+        <dt>포인트 수</dt><dd id="v-n">–</dd>
+      </dl>
+    </div>
+  </aside>
+</main>
+
+<script>
+"use strict";
+
+/* =====================================================================
+   GitHub Pages에 올려두면 data 폴더의 CSV를 자동으로 찾아 목록에 띄웁니다.
+   새 로그는 data 폴더에 CSV만 올리면 되고, 이 코드는 고칠 필요가 없습니다.
+   (파일 이름 역순 정렬 → 날짜가 들어간 이름이면 최신 로그가 맨 위)
+
+   DATA_FOLDER : CSV를 넣어둘 폴더 이름
+   GITHUB_REPO : 보통 비워두면 주소에서 자동 인식. 직접 지정하려면 '아이디/저장소'
+   ===================================================================== */
+var DATA_FOLDER = 'data';
+var GITHUB_REPO = '';
+var DATASETS = [];
+
+/* ---------- 상태 ---------- */
+var D = null;            // {x:Float64Array, y:Float64Array, clock:[], cols:[], ycolIdx, names}
+var view = null;         // {x0,x1,y0,y1}  (y는 항상 실제 압력값, 로그는 그릴 때 변환)
+var logY = true;
+var hoverI = -1;
+var markA = -1, markB = -1, nextMark = 0;
+var drag = null;         // {mode:'zoom'|'pan', x0,y0,x1,y1, moved}
+var pad = {l:76, r:16, t:18, b:44};
+
+var base = document.getElementById('base');
+var over = document.getElementById('overlay');
+var bctx = base.getContext('2d');
+var octx = over.getContext('2d');
+var wrap = document.getElementById('plotwrap');
+var W=0, H=0, DPR=1;
+
+/* ---------- 포맷 ---------- */
+function fmtSci(v, digits){
+  digits = (digits===undefined)?3:digits;
+  if(!isFinite(v)) return '–';
+  if(v===0) return '0';
+  var sign = v<0 ? '-' : '';
+  var a = Math.abs(v);
+  var e = Math.floor(Math.log10(a));
+  var m = a/Math.pow(10,e);
+  if(m >= 10-Math.pow(10,-digits)/2){ m/=10; e++; }
+  var es = (e<0?'-':'+') + String(Math.abs(e)).padStart(2,'0');
+  return sign + m.toFixed(digits) + 'e' + es;
+}
+function fmtDur(s, dec){
+  if(!isFinite(s)) return '–';
+  var neg = s<0; s = Math.abs(s);
+  if(dec===undefined) dec = (s<60?1:0);
+  var h = Math.floor(s/3600);
+  var m = Math.floor((s-h*3600)/60);
+  var sec = s - h*3600 - m*60;
+  var out;
+  var padw = dec>0 ? 3+dec : 2;
+  if(h>0) out = h+':'+String(m).padStart(2,'0')+':'+sec.toFixed(dec).padStart(padw,'0');
+  else if(m>0) out = m+':'+sec.toFixed(dec).padStart(padw,'0');
+  else out = sec.toFixed(Math.max(dec,1))+'s';
+  return (neg?'-':'')+out;
+}
+function fmtX(v, dec){ return (D && D.xIsTime===false) ? fmtNum(v) : fmtDur(v, dec); }
+function fmtXFull(v){
+  if(D && D.xIsTime===false) return fmtNum(v);
+  return fmtDur(v,1) + '  (' + v.toFixed(1) + ' s)';
+}
+function fmtNum(v){
+  var a = Math.abs(v);
+  if(v===0) return '0';
+  if(a>=1e4 || a<1e-3) return fmtSci(v,2);
+  return parseFloat(v.toPrecision(4)).toString();
+}
+
+/* ---------- CSV 파싱 ---------- */
+function splitLine(line, delim){
+  var out=[], cur='', q=false;
+  for(var i=0;i<line.length;i++){
+    var c=line[i];
+    if(q){
+      if(c==='"'){ if(line[i+1]==='"'){cur+='"';i++;} else q=false; }
+      else cur+=c;
+    }else{
+      if(c==='"') q=true;
+      else if(c===delim){ out.push(cur); cur=''; }
+      else cur+=c;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+function isClock(s){ return /^\d{1,2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(s.trim()); }
+function clockToSec(s){
+  var p = s.trim().split(':').map(parseFloat);
+  if(p.length===2) return p[0]*3600+p[1]*60;
+  return p[0]*3600+p[1]*60+p[2];
+}
+function toNum(s){
+  var t = s.trim().replace(/^\+/,'');
+  if(t==='' ) return NaN;
+  return Number(t);
+}
+
+function parseCSV(text){
+  text = text.replace(/^\uFEFF/,'');
+  var lines = text.split(/\r\n|\n|\r/);
+  var rows = [];
+  for(var i=0;i<lines.length;i++){ if(lines[i].trim()!=='') rows.push(lines[i]); }
+  if(rows.length < 2) throw new Error('데이터 줄이 너무 적습니다.');
+
+  // 구분자 추정
+  var cands = [',','\t',';'];
+  var delim = ',', bestN = 0;
+  for(var d=0; d<cands.length; d++){
+    var n = splitLine(rows[1], cands[d]).length;
+    if(n > bestN){ bestN = n; delim = cands[d]; }
+  }
+  if(bestN < 2) delim = ',';   // 한 열짜리 파일은 번호를 X축으로
+
+  var head = splitLine(rows[0], delim).map(function(s){return s.trim();});
+  var headerIsData = head.every(function(h){ return isFinite(toNum(h)); });
+  var names = headerIsData ? head.map(function(_,i){return '열 '+(i+1);}) : head;
+  var start = headerIsData ? 0 : 1;
+
+  var ncol = names.length;
+  var cells = [];
+  for(var r=start;r<rows.length;r++){
+    var c = splitLine(rows[r], delim);
+    if(c.length < ncol) continue;
+    cells.push(c);
+  }
+  if(cells.length < 2) throw new Error('읽을 수 있는 데이터 줄이 없습니다.');
+
+  // 열 종류 판정
+  var kind = [];
+  for(var col=0; col<ncol; col++){
+    var numOk=0, clkOk=0, tried=0;
+    for(var k=0;k<cells.length && tried<40;k+=Math.max(1,Math.floor(cells.length/40))){
+      var v = cells[k][col]; if(v===undefined) continue;
+      tried++;
+      if(isClock(v)) clkOk++;
+      else if(isFinite(toNum(v))) numOk++;
+    }
+    kind.push(clkOk>tried*0.6 ? 'clock' : (numOk>tried*0.6 ? 'num' : 'text'));
+  }
+
+  var numCols = [];
+  for(var q=0;q<ncol;q++) if(kind[q]==='num') numCols.push(q);
+  var ci = kind.indexOf('clock');
+  if(numCols.length===0) throw new Error('숫자 열을 찾지 못했습니다.');
+
+  // X 열: 이름에 elapsed/time/sec 이 있는 숫자 열
+  var xi = -1;
+  for(var a=0;a<numCols.length;a++){
+    var nm = names[numCols[a]];
+    if(/elapsed|time|sec|초|시간/i.test(nm) && !/press|mbar|torr|압력/i.test(nm)){ xi = numCols[a]; break; }
+  }
+  // 못 찾았으면 숫자 열이 둘 이상일 때만 첫 열을 X로
+  if(xi<0 && numCols.length>1) xi = numCols[0];
+  var useClockAsX = (xi<0 && ci>=0);
+  var useIndexAsX = (xi<0 && ci<0);
+
+  // Y 열: 압력 이름 우선 → 없으면 X가 아닌 마지막 숫자 열
+  var yi = -1;
+  for(var b=0;b<numCols.length;b++){
+    if(numCols[b]!==xi && /press|mbar|torr|pascal|\bpa\b|압력/i.test(names[numCols[b]])){ yi = numCols[b]; break; }
+  }
+  if(yi<0){ for(var c2=numCols.length-1;c2>=0;c2--){ if(numCols[c2]!==xi){ yi=numCols[c2]; break; } } }
+  if(yi<0) throw new Error('값(압력) 열을 찾지 못했습니다.');
+
+  var xs=[], ys=[], clk=[], keep=[];
+  var baseClock = null, wrapAdd = 0, prevClock = null;
+  for(var r2=0;r2<cells.length;r2++){
+    var row = cells[r2];
+    var yv = toNum(row[yi]);
+    if(!isFinite(yv)) continue;
+    var xv;
+    if(useClockAsX){
+      if(!isClock(row[ci]||'')) continue;
+      var cs = clockToSec(row[ci]);
+      if(baseClock===null){ baseClock = cs; prevClock = cs; }
+      if(cs + wrapAdd < prevClock - 1) wrapAdd += 86400;
+      prevClock = cs + wrapAdd;
+      xv = cs + wrapAdd - baseClock;
+    }else if(useIndexAsX){
+      xv = xs.length;
+    }else{
+      xv = toNum(row[xi]);
+      if(!isFinite(xv)) continue;
+    }
+    xs.push(xv); ys.push(yv);
+    clk.push(ci>=0 ? String(row[ci]||'').trim() : '');
+    keep.push(r2);
+  }
+  if(xs.length<2) throw new Error('유효한 데이터 점이 2개 미만입니다.');
+
+  // 시간순 정렬 보장
+  var sorted = true;
+  for(var s2=1;s2<xs.length;s2++) if(xs[s2]<xs[s2-1]){ sorted=false; break; }
+  if(!sorted){
+    var idx = xs.map(function(_,i){return i;});
+    idx.sort(function(p,q2){return xs[p]-xs[q2];});
+    var xs2=[], ys2=[], clk2=[], keep2=[];
+    for(var t2=0;t2<idx.length;t2++){ xs2.push(xs[idx[t2]]); ys2.push(ys[idx[t2]]); clk2.push(clk[idx[t2]]); keep2.push(keep[idx[t2]]); }
+    xs=xs2; ys=ys2; clk=clk2; keep=keep2;
+  }
+
+  // 다른 숫자 열도 Y 후보로 보관
+  var extra = [];
+  for(var e2=0;e2<numCols.length;e2++){
+    var colI = numCols[e2];
+    if(colI===xi) continue;
+    var arr = new Float64Array(keep.length);
+    for(var t3=0;t3<keep.length;t3++) arr[t3] = toNum(cells[keep[t3]][colI]);
+    extra.push({name:names[colI], idx:colI, data:arr});
+  }
+
+  return {
+    x:Float64Array.from(xs),
+    y:Float64Array.from(ys),
+    clock:clk,
+    xIsTime: !useIndexAsX,
+    xlabel: useIndexAsX ? '데이터 번호' : '경과 시간 (h:mm:ss)',
+    yname: names[yi],
+    ycols: extra,
+    ycur: yi
+  };
+}
+
+/* ---------- 스케일 ---------- */
+function sx(v){ return pad.l + (v - view.x0)/(view.x1 - view.x0) * (W - pad.l - pad.r); }
+function ix(px){ return view.x0 + (px - pad.l)/(W - pad.l - pad.r) * (view.x1 - view.x0); }
+function sy(v){
+  var h = H - pad.t - pad.b;
+  if(logY){
+    var l0 = Math.log10(view.y0), l1 = Math.log10(view.y1);
+    var lv = Math.log10(v<=0 ? 1e-300 : v);
+    return pad.t + (l1 - lv)/(l1 - l0) * h;
+  }
+  return pad.t + (view.y1 - v)/(view.y1 - view.y0) * h;
+}
+function iy(py){
+  var h = H - pad.t - pad.b;
+  if(logY){
+    var l0 = Math.log10(view.y0), l1 = Math.log10(view.y1);
+    return Math.pow(10, l1 - (py - pad.t)/h * (l1 - l0));
+  }
+  return view.y1 - (py - pad.t)/h * (view.y1 - view.y0);
+}
+
+function fullExtent(){
+  var x0 = D.x[0], x1 = D.x[D.x.length-1];
+  if(x1<=x0) x1 = x0+1;
+  var ext = yExtent(0, D.y.length-1);
+  return {x0:x0, x1:x1, y0:ext[0], y1:ext[1]};
+}
+function yExtent(i0, i1){
+  var mn = Infinity, mx = -Infinity;
+  for(var i=i0;i<=i1;i++){
+    var v = D.y[i];
+    if(!isFinite(v)) continue;
+    if(logY && v<=0) continue;
+    if(v<mn) mn=v;
+    if(v>mx) mx=v;
+  }
+  if(!isFinite(mn)){ return logY?[1e-9,1]:[0,1]; }
+  if(mn===mx){ if(logY) return [mn/3, mx*3]; var d=Math.abs(mn)||1; return [mn-d*0.1, mx+d*0.1]; }
+  if(logY){
+    var l0=Math.log10(mn), l1=Math.log10(mx), m=(l1-l0)*0.04;
+    return [Math.pow(10,l0-m), Math.pow(10,l1+m)];
+  }
+  var p=(mx-mn)*0.06;
+  return [mn>=0 ? Math.max(0, mn-p) : mn-p, mx+p];
+}
+function visibleRange(){
+  var i0 = lowerBound(view.x0) - 1;
+  var i1 = lowerBound(view.x1) + 1;
+  if(i0<0) i0=0;
+  if(i1>D.x.length-1) i1=D.x.length-1;
+  return [i0,i1];
+}
+function lowerBound(xv){
+  var lo=0, hi=D.x.length-1;
+  while(lo<hi){ var mid=(lo+hi)>>1; if(D.x[mid]<xv) lo=mid+1; else hi=mid; }
+  return lo;
+}
+function nearestIndex(xv){
+  var i = lowerBound(xv);
+  if(i>0 && Math.abs(D.x[i-1]-xv) <= Math.abs(D.x[i]-xv)) i--;
+  return i;
+}
+
+/* ---------- 눈금 ---------- */
+var TSTEPS=[0.01,0.02,0.05,0.1,0.2,0.5,1,2,5,10,15,30,60,120,300,600,900,1800,3600,7200,10800,21600,43200,86400,172800];
+function timeStep(span, target){
+  var raw = span/target;
+  for(var i=0;i<TSTEPS.length;i++) if(TSTEPS[i]>=raw) return TSTEPS[i];
+  return Math.ceil(raw/86400)*86400;
+}
+function niceStep(span, target){
+  var raw = span/target;
+  var mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  var n = raw/mag;
+  var s = n<1.5?1:(n<3?2:(n<7?5:10));
+  return s*mag;
+}
+
+/* ---------- 그리기 ---------- */
+function resize(){
+  DPR = window.devicePixelRatio || 1;
+  var r = wrap.getBoundingClientRect();
+  W = Math.max(60, Math.round(r.width));
+  H = Math.max(60, Math.round(r.height));
+  pad.l = W < 520 ? 60 : 76;
+  [base, over].forEach(function(c){
+    c.width = Math.round(W*DPR);
+    c.height = Math.round(H*DPR);
+  });
+  bctx.setTransform(DPR,0,0,DPR,0,0);
+  octx.setTransform(DPR,0,0,DPR,0,0);
+  draw();
+}
+
+function drawBase(){
+  bctx.clearRect(0,0,W,H);
+  if(!D || !view) return;
+  var L=pad.l, R=W-pad.r, T=pad.t, B=H-pad.b;
+
+  // 플롯 배경
+  bctx.fillStyle='#FFFFFF';
+  bctx.fillRect(L,T,R-L,B-T);
+
+  bctx.font='12px system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo",sans-serif';
+  bctx.textBaseline='middle';
+
+  // --- Y 그리드 ---
+  bctx.lineWidth=1;
+  if(logY){
+    var d0 = Math.floor(Math.log10(view.y0)), d1 = Math.ceil(Math.log10(view.y1));
+    var decades = d1-d0;
+    var labelEvery = decades>14 ? 2 : 1;
+    for(var d=d0; d<=d1; d++){
+      var yv = Math.pow(10,d);
+      var py = sy(yv);
+      if(py>=T-0.5 && py<=B+0.5){
+        bctx.strokeStyle='#C6D2D4';
+        bctx.beginPath(); bctx.moveTo(L,Math.round(py)+0.5); bctx.lineTo(R,Math.round(py)+0.5); bctx.stroke();
+        if((d-d0)%labelEvery===0) drawPow10(bctx, L-9, py, d);
+      }
+      if(decades<=8){
+        bctx.strokeStyle='#EAF0F1';
+        for(var m=2;m<=9;m++){
+          var pm = sy(yv*m);
+          if(pm>T && pm<B){
+            bctx.beginPath(); bctx.moveTo(L,Math.round(pm)+0.5); bctx.lineTo(R,Math.round(pm)+0.5); bctx.stroke();
+          }
+        }
+      }
+    }
+  }else{
+    var st = niceStep(view.y1-view.y0, 6);
+    var v0 = Math.ceil(view.y0/st)*st;
+    bctx.strokeStyle='#C6D2D4';
+    bctx.fillStyle='#60747C';
+    bctx.textAlign='right';
+    for(var v=v0; v<=view.y1; v+=st){
+      var pyl=sy(v);
+      if(pyl<T-0.5||pyl>B+0.5) continue;
+      bctx.beginPath(); bctx.moveTo(L,Math.round(pyl)+0.5); bctx.lineTo(R,Math.round(pyl)+0.5); bctx.stroke();
+      bctx.fillText(fmtNum(v), L-9, pyl);
+    }
+  }
+
+  // --- X 그리드 ---
+  var span = view.x1-view.x0;
+  var xstep = timeStep(span, Math.max(3, Math.floor((R-L)/110)));
+  var xv0 = Math.ceil(view.x0/xstep)*xstep;
+  bctx.strokeStyle='#DDE6E7';
+  bctx.fillStyle='#60747C';
+  bctx.textAlign='center';
+  for(var xv=xv0; xv<=view.x1; xv+=xstep){
+    var px = sx(xv);
+    if(px<L-0.5||px>R+0.5) continue;
+    bctx.beginPath(); bctx.moveTo(Math.round(px)+0.5,T); bctx.lineTo(Math.round(px)+0.5,B); bctx.stroke();
+    bctx.fillText(fmtX(xv, xstep<1?2:(xstep<60?1:0)), px, B+15);
+  }
+
+  // 축 제목
+  bctx.fillStyle='#60747C';
+  bctx.textAlign='center';
+  bctx.fillText(D.xlabel || '경과 시간 (h:mm:ss)', (L+R)/2, B+33);
+  bctx.save();
+  bctx.translate(14,(T+B)/2); bctx.rotate(-Math.PI/2);
+  bctx.fillText(D.yname || '압력', 0, 0);
+  bctx.restore();
+
+  // 테두리
+  bctx.strokeStyle='#B6C4C7';
+  bctx.lineWidth=1;
+  bctx.strokeRect(L+0.5,T+0.5,R-L-1,B-T-1);
+
+  // --- 데이터 ---
+  bctx.save();
+  bctx.beginPath(); bctx.rect(L,T,R-L,B-T); bctx.clip();
+  var rg = visibleRange(), i0=rg[0], i1=rg[1];
+  var pts = decimate(i0,i1);
+  bctx.strokeStyle='#1D5C87';
+  bctx.lineWidth=1.6;
+  bctx.lineJoin='round';
+  bctx.lineCap='round';
+  bctx.beginPath();
+  var started=false;
+  for(var i=0;i<pts.length;i+=2){
+    var X=pts[i], Y=pts[i+1];
+    if(!isFinite(Y)){ started=false; continue; }
+    if(!started){ bctx.moveTo(X,Y); started=true; }
+    else bctx.lineTo(X,Y);
+  }
+  bctx.stroke();
+
+  if(i1-i0 < 350){
+    bctx.fillStyle='#1D5C87';
+    for(var k=i0;k<=i1;k++){
+      var vy=D.y[k];
+      if(logY && vy<=0) continue;
+      bctx.beginPath(); bctx.arc(sx(D.x[k]), sy(vy), 2.1, 0, 6.2832); bctx.fill();
+    }
+  }
+  bctx.restore();
+
+  updateViewInfo(i0,i1);
+}
+
+function drawPow10(ctx, x, y, e){
+  ctx.fillStyle='#60747C';
+  ctx.textAlign='right';
+  var expTxt = (e<0?'−':'') + Math.abs(e);
+  ctx.font='9.5px system-ui,-apple-system,sans-serif';
+  var ew = ctx.measureText(expTxt).width;
+  ctx.fillText(expTxt, x, y-5);
+  ctx.font='12px system-ui,-apple-system,sans-serif';
+  ctx.fillText('10', x-ew-1, y);
+}
+
+function decimate(i0,i1){
+  var out=[];
+  var lastCol=null, fy=0, mn=0, mx=0, ly=0, hasCol=false;
+  function flush(col){
+    if(!hasCol) return;
+    out.push(col, fy);
+    if(mn!==fy) out.push(col, mn);
+    if(mx!==mn && mx!==fy) out.push(col, mx);
+    if(ly!==mx && ly!==mn && ly!==fy) out.push(col, ly);
+  }
+  for(var i=i0;i<=i1;i++){
+    var vy=D.y[i];
+    if(logY && vy<=0) continue;
+    var px=sx(D.x[i]);
+    var py=sy(vy);
+    var col=Math.round(px);
+    if(lastCol===null || col!==lastCol){
+      if(lastCol!==null) flush(lastCol);
+      lastCol=col; fy=py; mn=py; mx=py; ly=py; hasCol=true;
+    }else{
+      if(py<mn) mn=py;
+      if(py>mx) mx=py;
+      ly=py;
+    }
+  }
+  if(lastCol!==null) flush(lastCol);
+  return out;
+}
+
+function drawOverlay(){
+  octx.clearRect(0,0,W,H);
+  if(!D || !view) return;
+  var L=pad.l, R=W-pad.r, T=pad.t, B=H-pad.b;
+
+  // 선택 박스
+  if(drag && drag.mode==='zoom' && drag.moved){
+    var x0=Math.min(drag.x0,drag.x1), x1=Math.max(drag.x0,drag.x1);
+    var y0=Math.min(drag.y0,drag.y1), y1=Math.max(drag.y0,drag.y1);
+    octx.fillStyle='rgba(29,92,135,0.10)';
+    octx.strokeStyle='rgba(29,92,135,0.7)';
+    octx.lineWidth=1;
+    octx.fillRect(x0,y0,x1-x0,y1-y0);
+    octx.strokeRect(x0+0.5,y0+0.5,x1-x0-1,y1-y0-1);
+  }
+
+  // 마커
+  drawMarker(markA, '#0F7A6B', 'A');
+  drawMarker(markB, '#A8781A', 'B');
+
+  // 커서
+  if(hoverI>=0){
+    var x=D.x[hoverI], y=D.y[hoverI];
+    var px=sx(x), py=sy(y);
+    if(px>=L && px<=R){
+      octx.save();
+      octx.strokeStyle='#9B2F6E';
+      octx.lineWidth=1;
+      octx.setLineDash([4,3]);
+      octx.beginPath(); octx.moveTo(Math.round(px)+0.5,T); octx.lineTo(Math.round(px)+0.5,B); octx.stroke();
+      if(py>=T && py<=B){
+        octx.beginPath(); octx.moveTo(L,Math.round(py)+0.5); octx.lineTo(R,Math.round(py)+0.5); octx.stroke();
+      }
+      octx.setLineDash([]);
+      if(py>=T && py<=B){
+        octx.fillStyle='#9B2F6E';
+        octx.beginPath(); octx.arc(px,py,3.6,0,6.2832); octx.fill();
+        octx.strokeStyle='#fff'; octx.lineWidth=1.2; octx.stroke();
+      }
+      // 축 위 정확한 값 라벨
+      octx.font='11.5px system-ui,-apple-system,sans-serif';
+      tagX(px, B, fmtX(x, 1));
+      if(py>=T && py<=B) tagY(L, py, fmtSci(y,3));
+      octx.restore();
+    }
+  }
+}
+function tagX(px,B,txt){
+  var w=octx.measureText(txt).width+10;
+  var x=Math.min(Math.max(px-w/2, pad.l), W-pad.r-w);
+  octx.fillStyle='#9B2F6E';
+  octx.fillRect(x, B+2, w, 17);
+  octx.fillStyle='#fff'; octx.textAlign='center'; octx.textBaseline='middle';
+  octx.fillText(txt, x+w/2, B+11);
+}
+function tagY(L,py,txt){
+  var w=octx.measureText(txt).width+10;
+  var y=Math.min(Math.max(py-8.5, pad.t), H-pad.b-17);
+  octx.fillStyle='#9B2F6E';
+  octx.fillRect(L-w-3, y, w, 17);
+  octx.fillStyle='#fff'; octx.textAlign='center'; octx.textBaseline='middle';
+  octx.fillText(txt, L-w/2-3, y+8.5);
+}
+function drawMarker(i, color, label){
+  if(i<0) return;
+  var px=sx(D.x[i]);
+  if(px<pad.l-1 || px>W-pad.r+1) return;
+  var py=sy(D.y[i]);
+  octx.save();
+  octx.strokeStyle=color; octx.lineWidth=1.2;
+  octx.beginPath(); octx.moveTo(Math.round(px)+0.5,pad.t); octx.lineTo(Math.round(px)+0.5,H-pad.b); octx.stroke();
+  if(py>=pad.t && py<=H-pad.b){
+    octx.fillStyle=color;
+    octx.beginPath(); octx.arc(px,py,3.6,0,6.2832); octx.fill();
+    octx.strokeStyle='#fff'; octx.lineWidth=1.2; octx.stroke();
+  }
+  octx.fillStyle=color;
+  octx.fillRect(px-7, pad.t, 14, 15);
+  octx.fillStyle='#fff';
+  octx.font='600 11px system-ui,-apple-system,sans-serif';
+  octx.textAlign='center'; octx.textBaseline='middle';
+  octx.fillText(label, px, pad.t+7.5);
+  octx.restore();
+}
+
+function draw(){ drawBase(); drawOverlay(); }
+
+/* ---------- 패널 갱신 ---------- */
+function $(id){ return document.getElementById(id); }
+function updateCursor(){
+  if(hoverI<0){
+    $('c-p').textContent='–'; $('c-t').textContent='–'; $('c-clock').textContent='–'; $('c-i').textContent='–';
+  }else{
+    $('c-p').textContent = fmtSci(D.y[hoverI],3);
+    $('c-t').textContent = fmtXFull(D.x[hoverI]);
+    $('c-clock').textContent = D.clock[hoverI] || '–';
+    $('c-i').textContent = (hoverI+1) + ' / ' + D.x.length;
+  }
+  updateMarkers();
+}
+function updateMarkers(){
+  $('m-a').textContent = markA<0 ? '–' : fmtSci(D.y[markA],3) + ' @ ' + fmtX(D.x[markA],1);
+  $('m-b').textContent = markB<0 ? '–' : fmtSci(D.y[markB],3) + ' @ ' + fmtX(D.x[markB],1);
+  if(markA>=0 && markB>=0){
+    var dt = D.x[markB]-D.x[markA];
+    var dp = D.y[markB]-D.y[markA];
+    $('d-t').textContent = fmtXFull(dt);
+    $('d-p').textContent = (dp>=0?'+':'') + fmtSci(dp,3);
+    $('d-ratio').textContent = D.y[markA]!==0 ? fmtNum(D.y[markB]/D.y[markA]) + '배' : '–';
+    if(dt!==0){
+      $('d-rate').textContent = (dp/dt>=0?'+':'') + fmtSci(dp/dt,3) + ' /s';
+      $('d-rateh').textContent = (dp/dt>=0?'+':'') + fmtSci(dp/dt*3600,3) + ' /h';
+    }else{
+      $('d-rate').textContent='–'; $('d-rateh').textContent='–';
+    }
+    $('m-hint').textContent = '누설률·펌핑 속도를 볼 때 두 지점의 변화율을 씁니다.';
+  }else{
+    $('d-t').textContent='–'; $('d-p').textContent='–'; $('d-ratio').textContent='–';
+    $('d-rate').textContent='–'; $('d-rateh').textContent='–';
+    $('m-hint').textContent = markA<0 ? '그래프를 클릭하면 A, 한 번 더 클릭하면 B가 놓입니다.' : 'B를 놓을 위치를 클릭하세요.';
+  }
+}
+function updateViewInfo(i0,i1){
+  $('v-x').textContent = fmtX(view.x0,1) + ' – ' + fmtX(view.x1,1);
+  $('v-y').textContent = fmtSci(view.y0,2) + ' – ' + fmtSci(view.y1,2);
+  $('v-n').textContent = (i1-i0+1).toLocaleString('ko-KR');
+}
+function updateSummary(name){
+  $('filename').textContent = name;
+  var n = D.x.length;
+  var dur = D.x[n-1]-D.x[0];
+  var mn=Infinity, mx=-Infinity;
+  for(var i=0;i<n;i++){ if(D.y[i]<mn) mn=D.y[i]; if(D.y[i]>mx) mx=D.y[i]; }
+  $('summary').innerHTML =
+    '<span>포인트 <b>'+n.toLocaleString('ko-KR')+'</b></span>' +
+    '<span>기간 <b>'+fmtX(dur,0)+'</b></span>' +
+    '<span>최고 <b>'+fmtSci(mx,3)+'</b></span>' +
+    '<span>최저 <b>'+fmtSci(mn,3)+'</b></span>';
+}
+
+/* ---------- 상호작용 ---------- */
+function localPos(e){
+  var r = over.getBoundingClientRect();
+  return {x:e.clientX-r.left, y:e.clientY-r.top};
+}
+function inPlot(p){ return p.x>=pad.l && p.x<=W-pad.r && p.y>=pad.t && p.y<=H-pad.b; }
+
+over.addEventListener('pointermove', function(e){
+  if(!D) return;
+  var p = localPos(e);
+  if(drag){
+    if(Math.abs(p.x-drag.x0)>4 || Math.abs(p.y-drag.y0)>4) drag.moved=true;
+    if(drag.mode==='pan'){
+      var dx = ix(drag.x1) - ix(p.x);
+      view.x0 += dx; view.x1 += dx;
+      if(logY){
+        var f = Math.log10(iy(drag.y1)) - Math.log10(iy(p.y));
+        view.y0 = Math.pow(10, Math.log10(view.y0)+f);
+        view.y1 = Math.pow(10, Math.log10(view.y1)+f);
+      }else{
+        var dy = iy(drag.y1) - iy(p.y);
+        view.y0 += dy; view.y1 += dy;
+      }
+      drag.x1=p.x; drag.y1=p.y;
+      draw();
+      return;
+    }
+    drag.x1=p.x; drag.y1=p.y;
+    drawOverlay();
+    return;
+  }
+  if(inPlot(p)){
+    var i = nearestIndex(ix(p.x));
+    if(i!==hoverI){ hoverI=i; updateCursor(); drawOverlay(); }
+  }else if(hoverI!==-1){
+    hoverI=-1; updateCursor(); drawOverlay();
+  }
+});
+over.addEventListener('pointerleave', function(){
+  if(hoverI!==-1 && !drag){ hoverI=-1; updateCursor(); drawOverlay(); }
+});
+over.addEventListener('pointerdown', function(e){
+  if(!D) return;
+  var p = localPos(e);
+  if(!inPlot(p)) return;
+  over.setPointerCapture(e.pointerId);
+  drag = {mode: e.shiftKey?'pan':'zoom', x0:p.x, y0:p.y, x1:p.x, y1:p.y, moved:false};
+  wrap.focus({preventScroll:true});
+});
+over.addEventListener('pointerup', function(e){
+  if(!drag) return;
+  var p = localPos(e);
+  var d = drag; drag=null;
+  if(!d.moved){
+    // 클릭 → 마커
+    var i = nearestIndex(ix(p.x));
+    placeMarker(i);
+    drawOverlay();
+    return;
+  }
+  if(d.mode==='zoom'){
+    var xa=ix(Math.min(d.x0,d.x1)), xb=ix(Math.max(d.x0,d.x1));
+    var ya=iy(Math.max(d.y0,d.y1)), yb=iy(Math.min(d.y0,d.y1));
+    if(xb-xa > 0 && yb>ya){
+      view.x0=xa; view.x1=xb; view.y0=ya; view.y1=yb;
+    }
+  }
+  draw();
+});
+over.addEventListener('pointercancel', function(){ drag=null; drawOverlay(); });
+over.addEventListener('dblclick', function(){ if(D){ view=fullExtent(); draw(); } });
+
+over.addEventListener('wheel', function(e){
+  if(!D) return;
+  e.preventDefault();
+  var p = localPos(e);
+  var f = Math.pow(1.0018, e.deltaY);
+  if(e.shiftKey || e.ctrlKey || e.metaKey){
+    var yc = iy(Math.min(Math.max(p.y,pad.t),H-pad.b));
+    if(logY){
+      var lc=Math.log10(yc);
+      view.y0=Math.pow(10, lc + (Math.log10(view.y0)-lc)*f);
+      view.y1=Math.pow(10, lc + (Math.log10(view.y1)-lc)*f);
+    }else{
+      view.y0 = yc + (view.y0-yc)*f;
+      view.y1 = yc + (view.y1-yc)*f;
+    }
+  }else{
+    var xc = ix(Math.min(Math.max(p.x,pad.l),W-pad.r));
+    var nx0 = xc + (view.x0-xc)*f;
+    var nx1 = xc + (view.x1-xc)*f;
+    if(nx1-nx0 > 1e-9){ view.x0=nx0; view.x1=nx1; }
+  }
+  draw();
+}, {passive:false});
+
+// 터치 핀치 (두 손가락)
+var touches = {};
+over.addEventListener('pointerdown', function(e){ if(e.pointerType==='touch') touches[e.pointerId]=localPos(e); });
+over.addEventListener('pointerup', function(e){ delete touches[e.pointerId]; });
+over.addEventListener('pointercancel', function(e){ delete touches[e.pointerId]; });
+over.addEventListener('pointermove', function(e){
+  if(e.pointerType!=='touch') return;
+  if(!(e.pointerId in touches)) return;
+  var ids = Object.keys(touches);
+  touches[e.pointerId] = localPos(e);
+  if(ids.length===2 && D){
+    drag = null;
+    var a=touches[ids[0]], b=touches[ids[1]];
+    var dist = Math.abs(a.x-b.x);
+    if(over._pd && dist>4){
+      var f = over._pd/dist;
+      var xc = ix((a.x+b.x)/2);
+      view.x0 = xc + (view.x0-xc)*f;
+      view.x1 = xc + (view.x1-xc)*f;
+      draw();
+    }
+    over._pd = dist;
+  }else{
+    over._pd = null;
+  }
+});
+
+function placeMarker(i){
+  if(nextMark===0){ markA=i; markB=-1; nextMark=1; }
+  else { markB=i; nextMark=0; }
+  updateMarkers();
+}
+
+wrap.addEventListener('keydown', function(e){
+  if(!D) return;
+  var step = e.shiftKey?20:1;
+  if(e.key==='ArrowLeft'){ hoverI = Math.max(0,(hoverI<0?nearestIndex(view.x1):hoverI)-step); e.preventDefault(); }
+  else if(e.key==='ArrowRight'){ hoverI = Math.min(D.x.length-1,(hoverI<0?nearestIndex(view.x0):hoverI)+step); e.preventDefault(); }
+  else if(e.key==='Enter'||e.key===' '){ if(hoverI>=0) placeMarker(hoverI); e.preventDefault(); }
+  else if(e.key==='Escape'){ markA=markB=-1; nextMark=0; updateMarkers(); }
+  else if(e.key==='r'||e.key==='R'){ view=fullExtent(); }
+  else return;
+  // 커서가 화면 밖이면 따라가기
+  if(hoverI>=0){
+    var x=D.x[hoverI];
+    if(x<view.x0 || x>view.x1){
+      var span=view.x1-view.x0;
+      view.x0=x-span/2; view.x1=x+span/2;
+    }
+  }
+  updateCursor();
+  draw();
+});
+
+/* ---------- 버튼 ---------- */
+$('reset').onclick = function(){ if(D){ view=fullExtent(); draw(); } };
+$('logtoggle').onclick = function(){
+  logY=!logY;
+  this.setAttribute('aria-pressed', String(logY));
+  this.textContent = logY?'Y축 로그':'Y축 선형';
+  if(D){
+    var rg=visibleRange();
+    var ext=yExtent(rg[0],rg[1]);
+    view.y0=ext[0]; view.y1=ext[1];
+    draw();
+  }
+};
+$('clearmark').onclick = function(){ markA=markB=-1; nextMark=0; updateMarkers(); drawOverlay(); };
+$('png').onclick = function(){
+  if(!D) return;
+  var c=document.createElement('canvas');
+  c.width=base.width; c.height=base.height;
+  var x=c.getContext('2d');
+  x.fillStyle='#fff'; x.fillRect(0,0,c.width,c.height);
+  x.drawImage(base,0,0); x.drawImage(over,0,0);
+  var a=document.createElement('a');
+  a.download = ($('filename').textContent.replace(/\.[^.]+$/,'') || 'vacuum') + '_view.png';
+  a.href=c.toDataURL('image/png');
+  a.click();
+};
+$('ycol').onchange = function(){
+  if(!D) return;
+  var k = parseInt(this.value,10);
+  var col = D.ycols[k];
+  D.y = col.data;
+  D.yname = col.name;
+  view = fullExtent();
+  markA=markB=-1; nextMark=0; hoverI=-1;
+  updateCursor(); draw();
+};
+
+/* ---------- 파일 로딩 ---------- */
+var fileInput = $('file');
+$('pickbtn').onclick = function(){ fileInput.click(); };
+$('openlabel').addEventListener('keydown', function(e){
+  if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fileInput.click(); }
+});
+fileInput.onchange = function(){ if(this.files && this.files[0]) loadFile(this.files[0]); };
+
+['dragenter','dragover'].forEach(function(t){
+  window.addEventListener(t, function(e){ e.preventDefault(); document.body.classList.add('dragging'); });
+});
+['dragleave','drop'].forEach(function(t){
+  window.addEventListener(t, function(e){
+    e.preventDefault();
+    if(t==='drop' || e.relatedTarget===null) document.body.classList.remove('dragging');
+  });
+});
+window.addEventListener('drop', function(e){
+  if(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+});
+
+function loadText(text, name){
+  $('err').textContent='';
+  try{
+    var parsed = parseCSV(String(text));
+    D = parsed;
+    logY = true;
+    $('logtoggle').setAttribute('aria-pressed','true');
+    $('logtoggle').textContent='Y축 로그';
+    var sel=$('ycol');
+    sel.innerHTML='';
+    for(var i=0;i<D.ycols.length;i++){
+      var o=document.createElement('option');
+      o.value=String(i); o.textContent=D.ycols[i].name;
+      if(D.ycols[i].idx===D.ycur) o.selected=true;
+      sel.appendChild(o);
+    }
+    sel.style.display = D.ycols.length>1 ? '' : 'none';
+    document.querySelector('label[for=ycol]').style.display = D.ycols.length>1 ? '' : 'none';
+
+    view = fullExtent();
+    hoverI=-1; markA=markB=-1; nextMark=0;
+    $('dropzone').classList.add('hide');
+    updateSummary(name);
+    updateCursor();
+    resize();
+  }catch(err){
+    $('err').textContent = '읽지 못했습니다 — ' + err.message;
+    $('dropzone').classList.remove('hide');
+  }
+}
+
+function loadFile(file){
+  var fr = new FileReader();
+  $('err').textContent = '읽는 중…';
+  fr.onload = function(){ loadText(String(fr.result), file.name); };
+  fr.onerror = function(){
+    $('err').textContent = '파일을 읽는 중 오류가 났습니다. 다시 시도해 주세요.';
+    $('dropzone').classList.remove('hide');
+  };
+  fr.readAsText(file);
+}
+
+function loadURL(url, name){
+  $('err').textContent = '불러오는 중…';
+  fetch(url).then(function(r){
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    return r.text();
+  }).then(function(t){
+    loadText(t, name || url.split('/').pop().split('?')[0]);
+  }).catch(function(e){
+    $('err').textContent = '주소에서 불러오지 못했습니다 — ' + e.message +
+      ' · 같은 서버에 있거나 외부 접근(CORS)이 허용된 주소여야 합니다.';
+    $('dropzone').classList.remove('hide');
+  });
+}
+
+/* ---------- 시작 시 자동 로딩 ---------- */
+function detectRepo(){
+  if(GITHUB_REPO) return GITHUB_REPO;
+  var h = location.hostname;
+  if(!/\.github\.io$/i.test(h)) return null;
+  var owner = h.split('.')[0];
+  var seg = location.pathname.split('/').filter(Boolean);
+  var repo = (seg.length && !/\.html?$/i.test(seg[0])) ? seg[0] : h;
+  return owner + '/' + repo;
+}
+
+function listFromGitHub(repo, done){
+  fetch('https://api.github.com/repos/' + repo + '/contents/' + DATA_FOLDER)
+    .then(function(r){
+      if(r.status===404) throw new Error(DATA_FOLDER + ' 폴더를 찾지 못했습니다');
+      if(r.status===403) throw new Error('GitHub 조회 한도 초과(1시간 뒤 풀림)');
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function(items){
+      var list = [];
+      for(var i=0;i<items.length;i++){
+        var it = items[i];
+        if(it.type==='file' && /\.(csv|tsv|txt)$/i.test(it.name)){
+          list.push({name: it.name.replace(/\.[^.]+$/,''), url: it.download_url});
+        }
+      }
+      list.sort(function(x,y){ return x.name < y.name ? 1 : (x.name > y.name ? -1 : 0); });
+      done(list, null);
+    })
+    .catch(function(e){ done(null, e); });
+}
+
+function buildMenu(list, selected){
+  var sel = $('dataset');
+  sel.innerHTML = '';
+  if(!list.length){ sel.style.display='none'; return; }
+  sel.style.display='';
+  for(var i=0;i<list.length;i++){
+    var o=document.createElement('option');
+    o.value=String(i); o.textContent=list[i].name;
+    if(i===selected) o.selected=true;
+    sel.appendChild(o);
+  }
+  sel.onchange = function(){
+    var d = list[parseInt(this.value,10)];
+    if(d) loadURL(d.url, d.name);
+  };
+}
+
+function boot(){
+  // (1) 파일 안에 데이터가 박혀 있으면 그것부터
+  var baked = document.getElementById('baked-csv');
+  if(baked && baked.textContent.trim().length > 20){
+    loadText(baked.textContent, baked.getAttribute('data-name') || '포함된 로그');
+    return;
+  }
+  var q = null;
+  try{ q = new URLSearchParams(location.search).get('csv'); }catch(e){}
+
+  function finish(list){
+    // ?csv= 로 지정한 파일이 목록에 있으면 그 항목을 선택 상태로
+    var pick = 0;
+    if(q){
+      for(var i=0;i<list.length;i++){
+        if(list[i].url.split('/').pop() === q.split('/').pop()){ pick=i; break; }
+      }
+    }
+    buildMenu(list, pick);
+    if(q) loadURL(q, null);
+    else if(list.length) loadURL(list[0].url, list[0].name);
+  }
+
+  // (2) GitHub Pages면 data 폴더를 자동 조회
+  var repo = detectRepo();
+  if(repo){
+    $('err').textContent = '로그 목록을 불러오는 중…';
+    listFromGitHub(repo, function(list, err){
+      if(list){ $('err').textContent=''; finish(list.concat(DATASETS)); }
+      else{
+        $('err').textContent = '목록을 자동으로 못 불러왔습니다 — ' + err.message + '. 파일 열기로 직접 열 수 있습니다.';
+        finish(DATASETS);
+      }
+    });
+    return;
+  }
+  // (3) 그 밖의 곳: 수동 목록 / ?csv=
+  finish(DATASETS);
+}
+
+new ResizeObserver(function(){ resize(); }).observe(wrap);
+resize();
+boot();
+</script>
+</body>
+</html>
