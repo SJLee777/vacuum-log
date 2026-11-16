@@ -1,0 +1,1851 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>챔버 데이터 뷰어</title>
+<style>
+  :root{
+    --bg:#E9EDEC;
+    --panel:#FFFFFF;
+    --ink:#14212B;
+    --muted:#60747C;
+    --rule:#D2DBDC;
+    --trace:#1D5C87;
+    --cursor:#9B2F6E;
+    --mark-a:#0F7A6B;
+    --mark-b:#A8781A;
+    --focus:#1D5C87;
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none !important}
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
+    font-size:14px;
+    line-height:1.45;
+    font-variant-numeric:tabular-nums;
+    display:flex;
+    flex-direction:column;
+  }
+  header{
+    display:flex;
+    align-items:center;
+    gap:16px;
+    flex-wrap:wrap;
+    padding:12px 20px;
+    border-bottom:1px solid var(--rule);
+    background:var(--panel);
+  }
+  .tabs{display:inline-flex;border:1px solid var(--rule);border-radius:4px;overflow:hidden;flex:none}
+  .tabs button{border:0;border-radius:0;padding:6px 14px;font-weight:600;font-size:13.5px}
+  .tabs button+button{border-left:1px solid var(--rule)}
+  .tabs button[aria-selected="true"]{background:var(--ink);color:#fff}
+  .tabs button[aria-selected="true"]:hover{background:var(--ink)}
+  .filename{
+    font-weight:500;
+    color:var(--ink);
+    max-width:40ch;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .summary{
+    display:flex;
+    gap:20px;
+    flex-wrap:wrap;
+    color:var(--muted);
+    font-size:13px;
+    margin-left:auto;
+  }
+  .summary b{font-weight:600;color:var(--ink)}
+  button, .filebtn{
+    font:inherit;
+    font-size:13px;
+    color:var(--ink);
+    background:var(--panel);
+    border:1px solid var(--rule);
+    border-radius:3px;
+    padding:5px 11px;
+    cursor:pointer;
+  }
+  button:hover,.filebtn:hover{border-color:#9FB2B6;background:#F6F9F9}
+  button[aria-pressed="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
+  button:focus-visible,.filebtn:focus-visible,#plotwrap:focus-visible,select:focus-visible,input:focus-visible{
+    outline:2px solid var(--focus);outline-offset:2px;
+  }
+  input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+  select{font:inherit;font-size:13px;border:1px solid var(--rule);border-radius:3px;padding:4px 6px;background:var(--panel);color:var(--ink)}
+
+  main{flex:1;display:flex;min-height:0}
+  #plotcol{flex:1;display:flex;flex-direction:column;min-width:0;padding:14px 0 0 14px}
+  #plotwrap{position:relative;flex:1;min-height:260px;background:var(--panel);border:1px solid var(--rule);border-radius:3px;touch-action:none}
+  #plotwrap canvas{position:absolute;inset:0;width:100%;height:100%}
+  #overlay{cursor:crosshair}
+
+  #controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 0 12px}
+  .grp{display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .hint{color:var(--muted);font-size:12.5px;margin-left:auto;text-align:right}
+  #status{font-size:12.5px;color:var(--muted)}
+  #status.bad{color:#8C2B22}
+
+  aside{
+    width:300px;flex:none;padding:14px;display:flex;flex-direction:column;gap:12px;overflow:auto;
+  }
+  .card{background:var(--panel);border:1px solid var(--rule);border-radius:3px;padding:12px 13px}
+  .card h2{font-size:13px;font-weight:650;margin:0 0 9px;letter-spacing:-0.01em}
+  .card h2 small{font-weight:400;color:var(--muted);font-size:12px;margin-left:4px}
+  .swatch{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:baseline}
+  dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:5px 12px;align-items:baseline}
+  dt{color:var(--muted);font-size:12.5px;white-space:nowrap}
+  dd{margin:0;text-align:right;font-size:13.5px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+  dd.big{font-size:16px;font-weight:600;letter-spacing:-0.01em}
+  .empty{color:var(--muted);font-size:12.5px}
+  .note{color:#5A4A1E;background:#F7F1E1;border-radius:3px;padding:5px 8px;font-size:12.5px;margin:9px 0 0}
+
+  .runs{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px}
+  .runs label{display:flex;gap:8px;align-items:center;cursor:pointer}
+  .runs .line{width:16px;height:3px;border-radius:2px;flex:none}
+  .runs .meta{margin-left:auto;color:var(--muted);font-size:12px;white-space:nowrap}
+  .runs .rnote{color:var(--muted);font-size:12px;margin:2px 0 0 47px}
+  .runbtns{display:flex;gap:6px;margin-top:10px}
+  .runbtns button{padding:3px 9px;font-size:12.5px}
+
+  .target{display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+  .target input{width:96px;font:inherit;font-size:13.5px;padding:4px 7px;border:1px solid var(--rule);border-radius:3px}
+  #tgt-out dd{font-size:13px}
+
+  /* drop / empty state */
+  #dropzone{
+    position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:10px;text-align:center;padding:24px;background:var(--panel);
+  }
+  #dropzone p{margin:0;color:var(--muted);max-width:46ch}
+  #dropzone.hide{display:none}
+  body.dragging #dropzone{outline:2px dashed var(--trace);outline-offset:-10px;display:flex;background:#F4F9FB;z-index:5}
+  #err{color:#8C2B22;font-size:13px;max-width:52ch}
+
+  @media (max-width:880px){
+    main{flex-direction:column}
+    aside{width:auto;flex-direction:row;flex-wrap:wrap;padding:0 14px 14px}
+    .card{flex:1 1 260px}
+    #plotcol{padding:12px 14px 0}
+    .summary{margin-left:0;width:100%}
+    .hint{margin-left:0;text-align:left}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="tabs" role="tablist" aria-label="데이터 종류">
+    <button type="button" role="tab" id="tab-vacuum" aria-selected="true">진공 로그</button>
+    <button type="button" role="tab" id="tab-heater" aria-selected="false">히터 캘리브레이션</button>
+  </div>
+  <span class="filename" id="filename">파일 없음</span>
+  <select id="dataset" hidden aria-label="로그 고르기"></select>
+  <label class="filebtn" tabindex="0" id="openlabel">파일 열기<input type="file" id="file" multiple accept=".csv,.txt,.tsv,.rtf,text/csv,text/plain,application/rtf,text/rtf"></label>
+  <div class="summary" id="summary"></div>
+</header>
+
+<main>
+  <div id="plotcol">
+    <div id="plotwrap" tabindex="0" role="img" aria-label="데이터 그래프">
+      <canvas id="base"></canvas>
+      <canvas id="overlay"></canvas>
+      <div id="dropzone">
+        <strong id="dz-title">CSV 파일을 여기에 놓으세요</strong>
+        <p id="dz-text"></p>
+        <button type="button" id="pickbtn">파일 고르기</button>
+        <div id="err"></div>
+      </div>
+    </div>
+    <div id="controls">
+      <button type="button" id="reset">전체 보기</button>
+      <span class="grp" data-mode="vacuum">
+        <button type="button" id="logtoggle" aria-pressed="true">Y축 로그</button>
+        <button type="button" id="clearmark">마커 지우기</button>
+        <label for="ycol" class="empty" id="ycol-label">Y축</label>
+        <select id="ycol"></select>
+      </span>
+      <span class="grp" data-mode="heater" hidden>
+        <label for="hx" class="empty">X축</label>
+        <select id="hx">
+          <option value="A" selected>전류 (A)</option>
+          <option value="W">전력 (W)</option>
+          <option value="V">전압 (V)</option>
+          <option value="T">온도 (°C)</option>
+        </select>
+        <label for="hy" class="empty">Y축</label>
+        <select id="hy">
+          <option value="T" selected>온도 (°C)</option>
+          <option value="V">전압 (V)</option>
+          <option value="W">전력 (W)</option>
+          <option value="A">전류 (A)</option>
+        </select>
+      </span>
+      <button type="button" id="png">PNG 저장</button>
+      <span id="status" role="status"></span>
+      <span class="hint" id="hint"></span>
+    </div>
+  </div>
+
+  <aside>
+    <!-- ===== 진공 로그 ===== -->
+    <div class="card" data-mode="vacuum">
+      <h2><span class="swatch" style="background:var(--cursor)"></span>커서</h2>
+      <dl>
+        <dt>압력</dt><dd class="big" id="c-p">–</dd>
+        <dt>경과 시간</dt><dd id="c-t">–</dd>
+        <dt>시각</dt><dd id="c-clock">–</dd>
+        <dt>데이터 번호</dt><dd id="c-i">–</dd>
+      </dl>
+    </div>
+
+    <div class="card" data-mode="vacuum">
+      <h2>마커 A · B</h2>
+      <dl>
+        <dt><span class="swatch" style="background:var(--mark-a)"></span>A</dt><dd id="m-a">–</dd>
+        <dt><span class="swatch" style="background:var(--mark-b)"></span>B</dt><dd id="m-b">–</dd>
+      </dl>
+      <div style="height:9px"></div>
+      <dl>
+        <dt>Δt</dt><dd id="d-t">–</dd>
+        <dt>ΔP</dt><dd id="d-p">–</dd>
+        <dt>P<sub>B</sub>/P<sub>A</sub></dt><dd id="d-ratio">–</dd>
+        <dt>변화율</dt><dd id="d-rate">–</dd>
+        <dt>시간당</dt><dd id="d-rateh">–</dd>
+      </dl>
+      <p class="empty" id="m-hint" style="margin:9px 0 0">그래프를 클릭하면 A, 한 번 더 클릭하면 B가 놓입니다.</p>
+    </div>
+
+    <div class="card" data-mode="vacuum">
+      <h2>보이는 구간</h2>
+      <dl>
+        <dt>시간 범위</dt><dd id="v-x">–</dd>
+        <dt>압력 범위</dt><dd id="v-y">–</dd>
+        <dt>포인트 수</dt><dd id="v-n">–</dd>
+      </dl>
+    </div>
+
+    <!-- ===== 히터 캘리브레이션 ===== -->
+    <div class="card" data-mode="heater" hidden>
+      <h2>측정점</h2>
+      <dl>
+        <dt>측정</dt><dd id="h-run">–</dd>
+        <dt>전류</dt><dd class="big" id="h-a">–</dd>
+        <dt>온도</dt><dd class="big" id="h-t">–</dd>
+        <dt>전압</dt><dd id="h-v">–</dd>
+        <dt>전력</dt><dd id="h-w">–</dd>
+        <dt>저항 V/A</dt><dd id="h-r">–</dd>
+        <dt>순서</dt><dd id="h-i">–</dd>
+      </dl>
+      <p class="note" id="h-note" hidden></p>
+    </div>
+
+    <div class="card" data-mode="heater" hidden>
+      <h2>측정 목록<small id="h-prefix"></small></h2>
+      <ul class="runs" id="runs"></ul>
+      <div class="runbtns">
+        <button type="button" id="runs-all">모두 보기</button>
+        <button type="button" id="runs-none">모두 끄기</button>
+      </div>
+    </div>
+
+    <div class="card" data-mode="heater" hidden>
+      <h2>목표값 찾기</h2>
+      <div class="target">
+        <label for="tgt" id="tgt-label">목표 온도</label>
+        <input id="tgt" type="number" step="any" inputmode="decimal" placeholder="예: 200">
+        <span id="tgt-unit">°C</span>
+      </div>
+      <dl id="tgt-out"></dl>
+      <p class="empty" style="margin:9px 0 0">인접한 두 측정점 사이를 선형 보간합니다. 측정 범위 밖은 계산하지 않습니다.</p>
+    </div>
+  </aside>
+</main>
+
+<script>
+"use strict";
+
+/* =====================================================================
+   GitHub Pages에 올려두면 폴더 안의 파일을 자동으로 찾아 띄웁니다.
+   새 데이터는 해당 폴더에 파일만 올리면 되고, 이 코드는 고칠 필요가 없습니다.
+
+   VACUUM_FOLDERS : 진공 로그 CSV 폴더 (앞에서부터 찾아 처음 있는 폴더 사용)
+   HEATER_FOLDERS : 히터 캘리브레이션 폴더 (RTF, CSV, TXT 모두 가능)
+   GITHUB_REPO    : 보통 비워두면 주소에서 자동 인식. 직접 지정하려면 '아이디/저장소'
+
+   주소 뒤에 ?mode=heater 를 붙이면 히터 탭으로 바로 열립니다.
+   ===================================================================== */
+var VACUUM_FOLDERS = ['vacuum log data', 'data'];
+var HEATER_FOLDERS = ['heater calibration data'];
+var GITHUB_REPO = '';
+var DATASETS = [];
+
+/* ---------- 공통 상태 ---------- */
+var MODE = 'vacuum';
+var saved = { vacuum:{view:null, logY:true}, heater:{view:null, logY:false} };
+var loadedOnce = { vacuum:false, heater:false };
+var view = null;
+var logY = true;
+var drag = null;
+var pad = {l:76, r:16, t:18, b:44};
+var CSV_PARAM = null;
+
+/* ---------- 진공 로그 상태 ---------- */
+var D = null;
+var hoverI = -1;
+var markA = -1, markB = -1, nextMark = 0;
+var VAC_NAME = '', VAC_SUMMARY = '';
+var vacMenuReady = false;
+
+/* ---------- 히터 상태 ---------- */
+var RUNS = [];
+var RUN_PREFIX = '';
+var HX = 'A', HY = 'T';
+var HOVER = null;           // {r, i}
+var TARGET = NaN;
+var HCOLS = {
+  A:{label:'전류', unit:'A',  axis:'전류 (A)'},
+  T:{label:'온도', unit:'°C', axis:'온도 (°C)'},
+  V:{label:'전압', unit:'V',  axis:'전압 (V)'},
+  W:{label:'전력', unit:'W',  axis:'전력 (W)'}
+};
+var RUN_COLORS = ['#1D5C87','#C2413B','#0F7A6B','#A8781A','#6A4C93','#D9731A','#3E8DC4','#7A8B2E','#B04C8B','#5B6770'];
+
+var base = document.getElementById('base');
+var over = document.getElementById('overlay');
+var bctx = base.getContext('2d');
+var octx = over.getContext('2d');
+var wrap = document.getElementById('plotwrap');
+var W=0, H=0, DPR=1;
+
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
+/* ---------- 포맷 ---------- */
+function fmtSci(v, digits){
+  digits = (digits===undefined)?3:digits;
+  if(!isFinite(v)) return '–';
+  if(v===0) return '0';
+  var sign = v<0 ? '-' : '';
+  var a = Math.abs(v);
+  var e = Math.floor(Math.log10(a));
+  var m = a/Math.pow(10,e);
+  if(m >= 10-Math.pow(10,-digits)/2){ m/=10; e++; }
+  var es = (e<0?'-':'+') + String(Math.abs(e)).padStart(2,'0');
+  return sign + m.toFixed(digits) + 'e' + es;
+}
+function fmtDur(s, dec){
+  if(!isFinite(s)) return '–';
+  var neg = s<0; s = Math.abs(s);
+  if(dec===undefined) dec = (s<60?1:0);
+  var h = Math.floor(s/3600);
+  var m = Math.floor((s-h*3600)/60);
+  var sec = s - h*3600 - m*60;
+  var out;
+  var padw = dec>0 ? 3+dec : 2;
+  if(h>0) out = h+':'+String(m).padStart(2,'0')+':'+sec.toFixed(dec).padStart(padw,'0');
+  else if(m>0) out = m+':'+sec.toFixed(dec).padStart(padw,'0');
+  else out = sec.toFixed(Math.max(dec,1))+'s';
+  return (neg?'-':'')+out;
+}
+function fmtNum(v){
+  if(!isFinite(v)) return '–';
+  var a = Math.abs(v);
+  if(v===0) return '0';
+  if(a>=1e4 || a<1e-3) return fmtSci(v,2);
+  return parseFloat(v.toPrecision(4)).toString();
+}
+function fmtX(v, dec){ return (D && D.xIsTime===false) ? fmtNum(v) : fmtDur(v, dec); }
+function fmtXFull(v){
+  if(D && D.xIsTime===false) return fmtNum(v);
+  return fmtDur(v,1) + '  (' + v.toFixed(1) + ' s)';
+}
+function fmtU(v, key){ return isFinite(v) ? fmtNum(v) + ' ' + HCOLS[key].unit : '–'; }
+
+/* =====================================================================
+   파일 읽기: 바이트 → 텍스트 (RTF·UTF-8·CP949)
+   ===================================================================== */
+var RTF_DEST = {fonttbl:1,colortbl:1,stylesheet:1,info:1,pict:1,header:1,footer:1,headerl:1,headerr:1,footerl:1,footerr:1,
+  expandedcolortbl:1,listtable:1,listoverridetable:1,generator:1,themedata:1,colorschememapping:1,latentstyles:1,
+  datastore:1,xmlnstbl:1,rsidtbl:1,mmathPr:1,pgdsctbl:1,filetbl:1,revtbl:1,object:1,fldinst:1};
+
+function isRTF(bytes){
+  return bytes.length>5 && bytes[0]===123 && bytes[1]===92 && bytes[2]===114 && bytes[3]===116 && bytes[4]===102; // {\rtf
+}
+
+function rtfToText(bytes){
+  var head = ''; for(var h=0; h<Math.min(bytes.length,400); h++) head += String.fromCharCode(bytes[h]);
+  var cp = 'windows-1252';
+  var mcp = /\\ansicpg(\d+)/.exec(head);
+  if(mcp){
+    var n = +mcp[1];
+    cp = n===949 ? 'euc-kr' : n===932 ? 'shift_jis' : n===936 ? 'gbk' : n===950 ? 'big5' : n===65001 ? 'utf-8' : 'windows-' + n;
+  }
+  var dec;
+  try{ dec = new TextDecoder(cp); }catch(e){ dec = new TextDecoder('windows-1252'); }
+
+  var out = '', pend = [];
+  function flush(){ if(pend.length){ out += dec.decode(new Uint8Array(pend)); pend = []; } }
+  function emit(s){ flush(); out += s; }
+
+  var stack = [], st = {skip:false, uc:1}, skipChars = 0;
+  var i = 0, len = bytes.length;
+  while(i < len){
+    var c = bytes[i];
+    if(c === 123){ stack.push(st); st = {skip:st.skip, uc:st.uc}; i++; continue; }        // {
+    if(c === 125){ st = stack.pop() || {skip:false, uc:1}; i++; continue; }              // }
+    if(c === 92){                                                                         // \
+      var nx = bytes[i+1];
+      if(nx===92 || nx===123 || nx===125){
+        if(!st.skip){ if(skipChars>0) skipChars--; else emit(String.fromCharCode(nx)); }
+        i += 2; continue;
+      }
+      if(nx === 39){                                                                      // \'hh
+        var hv = parseInt(String.fromCharCode(bytes[i+2], bytes[i+3]), 16);
+        if(!st.skip){ if(skipChars>0) skipChars--; else if(!isNaN(hv)) pend.push(hv); }
+        i += 4; continue;
+      }
+      if(nx === 42){ st.skip = true; i += 2; continue; }                                  // \*
+      if(nx === 10 || nx === 13){ if(!st.skip) emit('\n'); i += 2; continue; }            // \<줄바꿈>
+      if(nx === 126){ if(!st.skip) emit(' '); i += 2; continue; }                         // \~
+      if(nx === 9){ if(!st.skip) emit('\t'); i += 2; continue; }
+      var j = i+1, word = '';
+      while(j<len && ((bytes[j]>=97 && bytes[j]<=122) || (bytes[j]>=65 && bytes[j]<=90))){ word += String.fromCharCode(bytes[j]); j++; }
+      if(word === ''){ i += 2; continue; }
+      var num = '';
+      if(j<len && (bytes[j]===45 || (bytes[j]>=48 && bytes[j]<=57))){
+        num += String.fromCharCode(bytes[j]); j++;
+        while(j<len && bytes[j]>=48 && bytes[j]<=57){ num += String.fromCharCode(bytes[j]); j++; }
+      }
+      if(j<len && bytes[j]===32) j++;
+      i = j;
+      if(RTF_DEST[word]){ st.skip = true; continue; }
+      if(st.skip) continue;
+      if(word==='par' || word==='line' || word==='row' || word==='sect' || word==='page') emit('\n');
+      else if(word==='tab' || word==='cell') emit('\t');
+      else if(word==='uc') st.uc = num==='' ? 1 : +num;
+      else if(word==='u'){ var u = +num; if(u<0) u += 65536; emit(String.fromCharCode(u)); skipChars = st.uc; }
+      else if(word==='emdash') emit('—');
+      else if(word==='endash') emit('–');
+      else if(word==='lquote' || word==='rquote') emit("'");
+      else if(word==='ldblquote' || word==='rdblquote') emit('"');
+      continue;
+    }
+    if(c === 13 || c === 10){ i++; continue; }
+    if(!st.skip){ if(skipChars>0) skipChars--; else pend.push(c); }
+    i++;
+  }
+  flush();
+  return out;
+}
+
+function bytesToText(bytes){
+  if(isRTF(bytes)) return rtfToText(bytes);
+  var t = new TextDecoder('utf-8').decode(bytes);
+  if(t.indexOf('\uFFFD') >= 0){
+    try{ t = new TextDecoder('euc-kr').decode(bytes); }catch(e){}
+  }
+  return t;
+}
+
+/* =====================================================================
+   히터 캘리브레이션 파싱
+   첫 머리글 줄(A, degree, V, W …)로 열 순서를 정하고,
+   숫자 뒤에 붙은 글은 그 측정점의 메모, 숫자 없는 줄은 파일 메모로 둡니다.
+   ===================================================================== */
+var NUM_RE = /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/;
+var NUM_HEAD = /^([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)(\S+)$/;
+var JUNK_RE = /^[₩\\¥]+$/;
+
+function headerKey(tok){
+  var t = tok.toLowerCase().replace(/[()\[\]{}]/g,' ').trim();
+  var first = t.split(/\s+/)[0];
+  if(/^(a|i|amp|amps|ampere|current|전류)$/.test(first)) return 'A';
+  if(/^(deg|degree|degrees|°c|℃|c|t|temp|temperature|온도)$/.test(first)) return 'T';
+  if(/^(v|volt|volts|voltage|전압)$/.test(first)) return 'V';
+  if(/^(w|p|watt|watts|power|전력)$/.test(first)) return 'W';
+  if(/degree|temp|온도|°c|℃/.test(t)) return 'T';
+  if(/current|전류/.test(t)) return 'A';
+  if(/voltage|전압/.test(t)) return 'V';
+  if(/power|전력/.test(t)) return 'W';
+  return null;
+}
+function tokenize(line){
+  var re = /[^\t,; ]+/g, m, out = [];
+  while((m = re.exec(line))) out.push({s:m[0], i:m.index});
+  return out;
+}
+function headerOf(toks){
+  var keys = [], seen = {};
+  for(var t=0;t<toks.length;t++){
+    if(NUM_RE.test(toks[t].s)) return null;
+    var k = headerKey(toks[t].s);
+    if(k && !seen[k]){ keys.push(k); seen[k] = 1; }
+  }
+  return (keys.length>=2) ? keys : null;
+}
+function looksHeater(text){
+  var lines = text.split(/\r\n|\n|\r/);
+  for(var i=0;i<Math.min(lines.length,15);i++){
+    var h = headerOf(tokenize(lines[i]));
+    if(h && h.indexOf('T')>=0 && (h.indexOf('A')>=0 || h.indexOf('W')>=0)) return true;
+  }
+  return false;
+}
+function classify(text){
+  var head = text.slice(0, 800);
+  if(/press|mbar|torr/i.test(head)) return 'vacuum';
+  if(looksHeater(text)) return 'heater';
+  return null;
+}
+
+function parseHeaterText(text, fileName){
+  var name = String(fileName).replace(/\.[^.]+$/,'').replace(/_/g,' ').replace(/\s+/g,' ').trim();
+  var order = null, rows = [], notes = [];
+  var lines = text.split(/\r\n|\n|\r/);
+  for(var li=0; li<lines.length; li++){
+    var line = lines[li];
+    if(!line.trim()) continue;
+    var toks = tokenize(line);
+    if(!toks.length) continue;
+    var hdr = headerOf(toks);
+    if(hdr){ order = hdr; continue; }
+
+    var vals = [], note = '';
+    for(var t=0;t<toks.length;t++){
+      var s = toks[t].s;
+      if(JUNK_RE.test(s)) continue;
+      if(NUM_RE.test(s)){ vals.push(parseFloat(s)); continue; }
+      var mm = NUM_HEAD.exec(s);
+      if(mm && vals.length>0){
+        vals.push(parseFloat(mm[1]));
+        note = line.slice(toks[t].i + mm[1].length).trim();
+        break;
+      }
+      note = line.slice(toks[t].i).trim();
+      break;
+    }
+    if(vals.length >= 2){
+      var ord = order || ['A','T','V','W'];
+      var row = {A:NaN, T:NaN, V:NaN, W:NaN, note:note};
+      for(var q=0; q<ord.length && q<vals.length; q++) row[ord[q]] = vals[q];
+      rows.push(row);
+    }else{
+      notes.push(line.trim());
+    }
+  }
+  var maxT = -Infinity, maxA = -Infinity;
+  rows.forEach(function(r){ if(r.T>maxT) maxT=r.T; if(r.A>maxA) maxA=r.A; });
+  return {name:name, file:fileName, rows:rows, notes:notes, maxT:maxT, maxA:maxA, visible:true, color:'#1D5C87', short:name};
+}
+
+/* =====================================================================
+   진공 로그 CSV 파싱
+   ===================================================================== */
+function splitLine(line, delim){
+  var out=[], cur='', q=false;
+  for(var i=0;i<line.length;i++){
+    var c=line[i];
+    if(q){
+      if(c==='"'){ if(line[i+1]==='"'){cur+='"';i++;} else q=false; }
+      else cur+=c;
+    }else{
+      if(c==='"') q=true;
+      else if(c===delim){ out.push(cur); cur=''; }
+      else cur+=c;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+function isClock(s){ return /^\d{1,2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(s.trim()); }
+function clockToSec(s){
+  var p = s.trim().split(':').map(parseFloat);
+  if(p.length===2) return p[0]*3600+p[1]*60;
+  return p[0]*3600+p[1]*60+p[2];
+}
+function toNum(s){
+  var t = String(s).trim().replace(/^\+/,'');
+  if(t==='' ) return NaN;
+  return Number(t);
+}
+
+function parseCSV(text){
+  text = text.replace(/^\uFEFF/,'');
+  var lines = text.split(/\r\n|\n|\r/);
+  var rows = [];
+  for(var i=0;i<lines.length;i++){ if(lines[i].trim()!=='') rows.push(lines[i]); }
+  if(rows.length < 2) throw new Error('데이터 줄이 너무 적습니다.');
+
+  var cands = [',','\t',';'];
+  var delim = ',', bestN = 0;
+  for(var d=0; d<cands.length; d++){
+    var n = splitLine(rows[1], cands[d]).length;
+    if(n > bestN){ bestN = n; delim = cands[d]; }
+  }
+  if(bestN < 2) delim = ',';
+
+  var head = splitLine(rows[0], delim).map(function(s){return s.trim();});
+  var headerIsData = head.every(function(h){ return isFinite(toNum(h)); });
+  var names = headerIsData ? head.map(function(_,i){return '열 '+(i+1);}) : head;
+  var start = headerIsData ? 0 : 1;
+
+  var ncol = names.length;
+  var cells = [];
+  for(var r=start;r<rows.length;r++){
+    var c = splitLine(rows[r], delim);
+    if(c.length < ncol) continue;
+    cells.push(c);
+  }
+  if(cells.length < 2) throw new Error('읽을 수 있는 데이터 줄이 없습니다.');
+
+  var kind = [];
+  for(var col=0; col<ncol; col++){
+    var numOk=0, clkOk=0, tried=0;
+    for(var k=0;k<cells.length && tried<40;k+=Math.max(1,Math.floor(cells.length/40))){
+      var v = cells[k][col]; if(v===undefined) continue;
+      tried++;
+      if(isClock(v)) clkOk++;
+      else if(isFinite(toNum(v))) numOk++;
+    }
+    kind.push(clkOk>tried*0.6 ? 'clock' : (numOk>tried*0.6 ? 'num' : 'text'));
+  }
+
+  var numCols = [];
+  for(var q=0;q<ncol;q++) if(kind[q]==='num') numCols.push(q);
+  var ci = kind.indexOf('clock');
+  if(numCols.length===0) throw new Error('숫자 열을 찾지 못했습니다.');
+
+  var xi = -1;
+  for(var a=0;a<numCols.length;a++){
+    var nm = names[numCols[a]];
+    if(/elapsed|time|sec|초|시간/i.test(nm) && !/press|mbar|torr|압력/i.test(nm)){ xi = numCols[a]; break; }
+  }
+  if(xi<0 && numCols.length>1) xi = numCols[0];
+  var useClockAsX = (xi<0 && ci>=0);
+  var useIndexAsX = (xi<0 && ci<0);
+
+  var yi = -1;
+  for(var b=0;b<numCols.length;b++){
+    if(numCols[b]!==xi && /press|mbar|torr|pascal|\bpa\b|압력/i.test(names[numCols[b]])){ yi = numCols[b]; break; }
+  }
+  if(yi<0){ for(var c2=numCols.length-1;c2>=0;c2--){ if(numCols[c2]!==xi){ yi=numCols[c2]; break; } } }
+  if(yi<0) throw new Error('값(압력) 열을 찾지 못했습니다.');
+
+  var xs=[], ys=[], clk=[], keep=[];
+  var baseClock = null, wrapAdd = 0, prevClock = null;
+  for(var r2=0;r2<cells.length;r2++){
+    var row = cells[r2];
+    var yv = toNum(row[yi]);
+    if(!isFinite(yv)) continue;
+    var xv;
+    if(useClockAsX){
+      if(!isClock(row[ci]||'')) continue;
+      var cs = clockToSec(row[ci]);
+      if(baseClock===null){ baseClock = cs; prevClock = cs; }
+      if(cs + wrapAdd < prevClock - 1) wrapAdd += 86400;
+      prevClock = cs + wrapAdd;
+      xv = cs + wrapAdd - baseClock;
+    }else if(useIndexAsX){
+      xv = xs.length;
+    }else{
+      xv = toNum(row[xi]);
+      if(!isFinite(xv)) continue;
+    }
+    xs.push(xv); ys.push(yv);
+    clk.push(ci>=0 ? String(row[ci]||'').trim() : '');
+    keep.push(r2);
+  }
+  if(xs.length<2) throw new Error('유효한 데이터 점이 2개 미만입니다.');
+
+  var sorted = true;
+  for(var s2=1;s2<xs.length;s2++) if(xs[s2]<xs[s2-1]){ sorted=false; break; }
+  if(!sorted){
+    var idx = xs.map(function(_,i){return i;});
+    idx.sort(function(p,q2){return xs[p]-xs[q2];});
+    var xs2=[], ys2=[], clk2=[], keep2=[];
+    for(var t2=0;t2<idx.length;t2++){ xs2.push(xs[idx[t2]]); ys2.push(ys[idx[t2]]); clk2.push(clk[idx[t2]]); keep2.push(keep[idx[t2]]); }
+    xs=xs2; ys=ys2; clk=clk2; keep=keep2;
+  }
+
+  var extra = [];
+  for(var e2=0;e2<numCols.length;e2++){
+    var colI = numCols[e2];
+    if(colI===xi) continue;
+    var arr = new Float64Array(keep.length);
+    for(var t3=0;t3<keep.length;t3++) arr[t3] = toNum(cells[keep[t3]][colI]);
+    extra.push({name:names[colI], idx:colI, data:arr});
+  }
+
+  return {
+    x:Float64Array.from(xs),
+    y:Float64Array.from(ys),
+    clock:clk,
+    xIsTime: !useIndexAsX,
+    xlabel: useIndexAsX ? '데이터 번호' : '경과 시간 (h:mm:ss)',
+    yname: names[yi],
+    ycols: extra,
+    ycur: yi
+  };
+}
+
+/* =====================================================================
+   스케일
+   ===================================================================== */
+function sx(v){ return pad.l + (v - view.x0)/(view.x1 - view.x0) * (W - pad.l - pad.r); }
+function ix(px){ return view.x0 + (px - pad.l)/(W - pad.l - pad.r) * (view.x1 - view.x0); }
+function sy(v){
+  var h = H - pad.t - pad.b;
+  if(logY){
+    var l0 = Math.log10(view.y0), l1 = Math.log10(view.y1);
+    var lv = Math.log10(v<=0 ? 1e-300 : v);
+    return pad.t + (l1 - lv)/(l1 - l0) * h;
+  }
+  return pad.t + (view.y1 - v)/(view.y1 - view.y0) * h;
+}
+function iy(py){
+  var h = H - pad.t - pad.b;
+  if(logY){
+    var l0 = Math.log10(view.y0), l1 = Math.log10(view.y1);
+    return Math.pow(10, l1 - (py - pad.t)/h * (l1 - l0));
+  }
+  return view.y1 - (py - pad.t)/h * (view.y1 - view.y0);
+}
+function linPad(mn, mx){
+  if(!isFinite(mn)) return [0,1];
+  if(mn===mx){ var d=Math.abs(mn)||1; return [mn-d*0.1, mx+d*0.1]; }
+  var p=(mx-mn)*0.06;
+  return [mn>=0 ? Math.max(0, mn-p) : mn-p, mx+p];
+}
+
+/* 진공 */
+function vacExtent(lg){
+  var x0 = D.x[0], x1 = D.x[D.x.length-1];
+  if(x1<=x0) x1 = x0+1;
+  var ext = yExtent(0, D.y.length-1, lg);
+  return {x0:x0, x1:x1, y0:ext[0], y1:ext[1]};
+}
+function yExtent(i0, i1, lg){
+  var mn = Infinity, mx = -Infinity;
+  for(var i=i0;i<=i1;i++){
+    var v = D.y[i];
+    if(!isFinite(v)) continue;
+    if(lg && v<=0) continue;
+    if(v<mn) mn=v;
+    if(v>mx) mx=v;
+  }
+  if(!isFinite(mn)){ return lg?[1e-9,1]:[0,1]; }
+  if(mn===mx){ if(lg) return [mn/3, mx*3]; var d=Math.abs(mn)||1; return [mn-d*0.1, mx+d*0.1]; }
+  if(lg){
+    var l0=Math.log10(mn), l1=Math.log10(mx), m=(l1-l0)*0.04;
+    return [Math.pow(10,l0-m), Math.pow(10,l1+m)];
+  }
+  return linPad(mn, mx);
+}
+function visibleRange(){
+  var i0 = lowerBound(view.x0) - 1;
+  var i1 = lowerBound(view.x1) + 1;
+  if(i0<0) i0=0;
+  if(i1>D.x.length-1) i1=D.x.length-1;
+  return [i0,i1];
+}
+function lowerBound(xv){
+  var lo=0, hi=D.x.length-1;
+  while(lo<hi){ var mid=(lo+hi)>>1; if(D.x[mid]<xv) lo=mid+1; else hi=mid; }
+  return lo;
+}
+function nearestIndex(xv){
+  var i = lowerBound(xv);
+  if(i>0 && Math.abs(D.x[i-1]-xv) <= Math.abs(D.x[i]-xv)) i--;
+  return i;
+}
+
+/* 히터 */
+function heaterExtent(){
+  var anyVis = RUNS.some(function(r){ return r.visible; });
+  var x0=Infinity, x1=-Infinity, y0=Infinity, y1=-Infinity;
+  RUNS.forEach(function(r){
+    if(anyVis && !r.visible) return;
+    r.rows.forEach(function(row){
+      var x=row[HX], y=row[HY];
+      if(!isFinite(x) || !isFinite(y)) return;
+      if(x<x0) x0=x; if(x>x1) x1=x;
+      if(y<y0) y0=y; if(y>y1) y1=y;
+    });
+  });
+  var xe = linPad(x0, x1), ye = linPad(y0, y1);
+  return {x0:xe[0], x1:xe[1], y0:ye[0], y1:ye[1]};
+}
+
+function currentExtent(){ return MODE==='vacuum' ? vacExtent(logY) : heaterExtent(); }
+function hasData(){ return MODE==='vacuum' ? !!D : RUNS.length>0; }
+
+/* =====================================================================
+   눈금
+   ===================================================================== */
+var TSTEPS=[0.01,0.02,0.05,0.1,0.2,0.5,1,2,5,10,15,30,60,120,300,600,900,1800,3600,7200,10800,21600,43200,86400,172800];
+function timeStep(span, target){
+  var raw = span/target;
+  for(var i=0;i<TSTEPS.length;i++) if(TSTEPS[i]>=raw) return TSTEPS[i];
+  return Math.ceil(raw/86400)*86400;
+}
+function niceStep(span, target){
+  var raw = span/target;
+  var mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  var n = raw/mag;
+  var s = n<1.5?1:(n<3?2:(n<7?5:10));
+  return s*mag;
+}
+function tickLabel(v, step){
+  // 부동소수점 잔여 제거
+  var dec = Math.max(0, -Math.floor(Math.log10(step)+1e-9));
+  return (Math.abs(v) < step*1e-6) ? '0' : v.toFixed(Math.min(dec,6));
+}
+
+/* =====================================================================
+   그리기
+   ===================================================================== */
+function resize(){
+  DPR = window.devicePixelRatio || 1;
+  var r = wrap.getBoundingClientRect();
+  W = Math.max(60, Math.round(r.width));
+  H = Math.max(60, Math.round(r.height));
+  pad.l = W < 520 ? 60 : 76;
+  [base, over].forEach(function(c){
+    c.width = Math.round(W*DPR);
+    c.height = Math.round(H*DPR);
+  });
+  bctx.setTransform(DPR,0,0,DPR,0,0);
+  octx.setTransform(DPR,0,0,DPR,0,0);
+  draw();
+}
+
+function drawFrame(ax){
+  var L=pad.l, R=W-pad.r, T=pad.t, B=H-pad.b;
+  bctx.fillStyle='#FFFFFF';
+  bctx.fillRect(L,T,R-L,B-T);
+  bctx.font='12px system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo",sans-serif';
+  bctx.textBaseline='middle';
+  bctx.lineWidth=1;
+
+  // Y 그리드
+  if(logY){
+    var d0 = Math.floor(Math.log10(view.y0)), d1 = Math.ceil(Math.log10(view.y1));
+    var decades = d1-d0;
+    var labelEvery = decades>14 ? 2 : 1;
+    for(var d=d0; d<=d1; d++){
+      var yv = Math.pow(10,d);
+      var py = sy(yv);
+      if(py>=T-0.5 && py<=B+0.5){
+        bctx.strokeStyle='#C6D2D4';
+        bctx.beginPath(); bctx.moveTo(L,Math.round(py)+0.5); bctx.lineTo(R,Math.round(py)+0.5); bctx.stroke();
+        if((d-d0)%labelEvery===0) drawPow10(bctx, L-9, py, d);
+      }
+      if(decades<=8){
+        bctx.strokeStyle='#EAF0F1';
+        for(var m=2;m<=9;m++){
+          var pm = sy(yv*m);
+          if(pm>T && pm<B){
+            bctx.beginPath(); bctx.moveTo(L,Math.round(pm)+0.5); bctx.lineTo(R,Math.round(pm)+0.5); bctx.stroke();
+          }
+        }
+      }
+    }
+  }else{
+    var st = niceStep(view.y1-view.y0, Math.max(3, Math.floor((B-T)/60)));
+    var v0 = Math.ceil(view.y0/st)*st;
+    bctx.strokeStyle='#D6E0E2';
+    bctx.fillStyle='#60747C';
+    bctx.textAlign='right';
+    for(var v=v0; v<=view.y1+st*1e-9; v+=st){
+      var pyl=sy(v);
+      if(pyl<T-0.5||pyl>B+0.5) continue;
+      bctx.beginPath(); bctx.moveTo(L,Math.round(pyl)+0.5); bctx.lineTo(R,Math.round(pyl)+0.5); bctx.stroke();
+      bctx.fillText(ax.xTime||MODE==='vacuum' ? fmtNum(v) : tickLabel(v, st), L-9, pyl);
+    }
+  }
+
+  // X 그리드
+  var span = view.x1-view.x0;
+  var target = Math.max(3, Math.floor((R-L)/110));
+  var xstep = ax.xTime ? timeStep(span, target) : niceStep(span, target);
+  var xv0 = Math.ceil(view.x0/xstep)*xstep;
+  bctx.strokeStyle='#DDE6E7';
+  bctx.fillStyle='#60747C';
+  bctx.textAlign='center';
+  for(var xv=xv0; xv<=view.x1+xstep*1e-9; xv+=xstep){
+    var px = sx(xv);
+    if(px<L-0.5||px>R+0.5) continue;
+    bctx.beginPath(); bctx.moveTo(Math.round(px)+0.5,T); bctx.lineTo(Math.round(px)+0.5,B); bctx.stroke();
+    var lab = ax.xTime ? fmtDur(xv, xstep<1?2:(xstep<60?1:0)) : tickLabel(xv, xstep);
+    bctx.fillText(lab, px, B+15);
+  }
+
+  // 축 제목
+  bctx.fillStyle='#60747C';
+  bctx.textAlign='center';
+  bctx.fillText(ax.xlabel, (L+R)/2, B+33);
+  bctx.save();
+  bctx.translate(14,(T+B)/2); bctx.rotate(-Math.PI/2);
+  bctx.fillText(ax.ylabel, 0, 0);
+  bctx.restore();
+
+  bctx.strokeStyle='#B6C4C7';
+  bctx.strokeRect(L+0.5,T+0.5,R-L-1,B-T-1);
+}
+
+function drawPow10(ctx, x, y, e){
+  ctx.fillStyle='#60747C';
+  ctx.textAlign='right';
+  var expTxt = (e<0?'−':'') + Math.abs(e);
+  ctx.font='9.5px system-ui,-apple-system,sans-serif';
+  var ew = ctx.measureText(expTxt).width;
+  ctx.fillText(expTxt, x, y-5);
+  ctx.font='12px system-ui,-apple-system,sans-serif';
+  ctx.fillText('10', x-ew-1, y);
+}
+
+function drawBase(){
+  bctx.clearRect(0,0,W,H);
+  if(!hasData() || !view) return;
+  var ax = (MODE==='vacuum')
+    ? {xTime: D.xIsTime, xlabel: D.xlabel, ylabel: D.yname || '압력'}
+    : {xTime: false, xlabel: HCOLS[HX].axis, ylabel: HCOLS[HY].axis};
+  drawFrame(ax);
+  var L=pad.l, R=W-pad.r, T=pad.t, B=H-pad.b;
+  bctx.save();
+  bctx.beginPath(); bctx.rect(L,T,R-L,B-T); bctx.clip();
+  if(MODE==='vacuum') drawVacuumData(); else drawHeaterData();
+  bctx.restore();
+}
+
+function drawVacuumData(){
+  var rg = visibleRange(), i0=rg[0], i1=rg[1];
+  var pts = decimate(i0,i1);
+  bctx.strokeStyle='#1D5C87';
+  bctx.lineWidth=1.6;
+  bctx.lineJoin='round';
+  bctx.lineCap='round';
+  bctx.beginPath();
+  var started=false;
+  for(var i=0;i<pts.length;i+=2){
+    var X=pts[i], Y=pts[i+1];
+    if(!isFinite(Y)){ started=false; continue; }
+    if(!started){ bctx.moveTo(X,Y); started=true; }
+    else bctx.lineTo(X,Y);
+  }
+  bctx.stroke();
+  if(i1-i0 < 350){
+    bctx.fillStyle='#1D5C87';
+    for(var k=i0;k<=i1;k++){
+      var vy=D.y[k];
+      if(logY && vy<=0) continue;
+      bctx.beginPath(); bctx.arc(sx(D.x[k]), sy(vy), 2.1, 0, 6.2832); bctx.fill();
+    }
+  }
+  updateViewInfo(i0,i1);
+}
+
+function decimate(i0,i1){
+  var out=[];
+  var lastCol=null, fy=0, mn=0, mx=0, ly=0, hasCol=false;
+  function flush(col){
+    if(!hasCol) return;
+    out.push(col, fy);
+    if(mn!==fy) out.push(col, mn);
+    if(mx!==mn && mx!==fy) out.push(col, mx);
+    if(ly!==mx && ly!==mn && ly!==fy) out.push(col, ly);
+  }
+  for(var i=i0;i<=i1;i++){
+    var vy=D.y[i];
+    if(logY && vy<=0) continue;
+    var px=sx(D.x[i]);
+    var py=sy(vy);
+    var col=Math.round(px);
+    if(lastCol===null || col!==lastCol){
+      if(lastCol!==null) flush(lastCol);
+      lastCol=col; fy=py; mn=py; mx=py; ly=py; hasCol=true;
+    }else{
+      if(py<mn) mn=py;
+      if(py>mx) mx=py;
+      ly=py;
+    }
+  }
+  if(lastCol!==null) flush(lastCol);
+  return out;
+}
+
+function drawHeaterData(){
+  bctx.lineJoin='round';
+  bctx.lineCap='round';
+  RUNS.forEach(function(r){
+    if(!r.visible) return;
+    // 측정 순서대로 잇기
+    bctx.strokeStyle=r.color;
+    bctx.lineWidth=1.7;
+    bctx.beginPath();
+    var started=false;
+    r.rows.forEach(function(row){
+      var x=row[HX], y=row[HY];
+      if(!isFinite(x)||!isFinite(y)){ started=false; return; }
+      if(!started){ bctx.moveTo(sx(x),sy(y)); started=true; }
+      else bctx.lineTo(sx(x),sy(y));
+    });
+    bctx.stroke();
+    r.rows.forEach(function(row){
+      var x=row[HX], y=row[HY];
+      if(!isFinite(x)||!isFinite(y)) return;
+      bctx.beginPath(); bctx.arc(sx(x), sy(y), 3.3, 0, 6.2832);
+      bctx.fillStyle=r.color; bctx.fill();
+      bctx.strokeStyle='#fff'; bctx.lineWidth=1.2; bctx.stroke();
+      if(row.note){ // 메모가 있는 점은 바깥 고리로 표시
+        bctx.beginPath(); bctx.arc(sx(x), sy(y), 6.2, 0, 6.2832);
+        bctx.strokeStyle=r.color; bctx.lineWidth=1.2; bctx.stroke();
+      }
+    });
+  });
+}
+
+function drawOverlay(){
+  octx.clearRect(0,0,W,H);
+  if(!hasData() || !view) return;
+  var L=pad.l, R=W-pad.r, T=pad.t, B=H-pad.b;
+
+  if(drag && drag.mode==='zoom' && drag.moved){
+    var x0=Math.min(drag.x0,drag.x1), x1=Math.max(drag.x0,drag.x1);
+    var y0=Math.min(drag.y0,drag.y1), y1=Math.max(drag.y0,drag.y1);
+    octx.fillStyle='rgba(29,92,135,0.10)';
+    octx.strokeStyle='rgba(29,92,135,0.7)';
+    octx.lineWidth=1;
+    octx.fillRect(x0,y0,x1-x0,y1-y0);
+    octx.strokeRect(x0+0.5,y0+0.5,x1-x0-1,y1-y0-1);
+  }
+
+  if(MODE==='vacuum') drawVacuumOverlay(); else drawHeaterOverlay();
+}
+
+function crosshair(px, py, color, xtxt, ytxt, dotColor){
+  var L=pad.l, R=W-pad.r, T=pad.t, B=H-pad.b;
+  if(px<L || px>R) return;
+  octx.save();
+  octx.strokeStyle=color;
+  octx.lineWidth=1;
+  octx.setLineDash([4,3]);
+  octx.beginPath(); octx.moveTo(Math.round(px)+0.5,T); octx.lineTo(Math.round(px)+0.5,B); octx.stroke();
+  var inY = (py>=T && py<=B);
+  if(inY){ octx.beginPath(); octx.moveTo(L,Math.round(py)+0.5); octx.lineTo(R,Math.round(py)+0.5); octx.stroke(); }
+  octx.setLineDash([]);
+  if(inY){
+    octx.fillStyle=dotColor||color;
+    octx.beginPath(); octx.arc(px,py,4.2,0,6.2832); octx.fill();
+    octx.strokeStyle='#fff'; octx.lineWidth=1.4; octx.stroke();
+  }
+  octx.font='11.5px system-ui,-apple-system,sans-serif';
+  tagX(px, B, xtxt, color);
+  if(inY) tagY(L, py, ytxt, color);
+  octx.restore();
+}
+function tagX(px,B,txt,color){
+  var w=octx.measureText(txt).width+10;
+  var x=Math.min(Math.max(px-w/2, pad.l), W-pad.r-w);
+  octx.fillStyle=color;
+  octx.fillRect(x, B+2, w, 17);
+  octx.fillStyle='#fff'; octx.textAlign='center'; octx.textBaseline='middle';
+  octx.fillText(txt, x+w/2, B+11);
+}
+function tagY(L,py,txt,color){
+  var w=octx.measureText(txt).width+10;
+  var y=Math.min(Math.max(py-8.5, pad.t), H-pad.b-17);
+  octx.fillStyle=color;
+  octx.fillRect(L-w-3, y, w, 17);
+  octx.fillStyle='#fff'; octx.textAlign='center'; octx.textBaseline='middle';
+  octx.fillText(txt, L-w/2-3, y+8.5);
+}
+
+function drawVacuumOverlay(){
+  drawMarker(markA, '#0F7A6B', 'A');
+  drawMarker(markB, '#A8781A', 'B');
+  if(hoverI>=0){
+    var x=D.x[hoverI], y=D.y[hoverI];
+    crosshair(sx(x), sy(y), '#9B2F6E', fmtX(x,1), fmtSci(y,3));
+  }
+}
+function drawMarker(i, color, label){
+  if(i<0) return;
+  var px=sx(D.x[i]);
+  if(px<pad.l-1 || px>W-pad.r+1) return;
+  var py=sy(D.y[i]);
+  octx.save();
+  octx.strokeStyle=color; octx.lineWidth=1.2;
+  octx.beginPath(); octx.moveTo(Math.round(px)+0.5,pad.t); octx.lineTo(Math.round(px)+0.5,H-pad.b); octx.stroke();
+  if(py>=pad.t && py<=H-pad.b){
+    octx.fillStyle=color;
+    octx.beginPath(); octx.arc(px,py,3.6,0,6.2832); octx.fill();
+    octx.strokeStyle='#fff'; octx.lineWidth=1.2; octx.stroke();
+  }
+  octx.fillStyle=color;
+  octx.fillRect(px-7, pad.t, 14, 15);
+  octx.fillStyle='#fff';
+  octx.font='600 11px system-ui,-apple-system,sans-serif';
+  octx.textAlign='center'; octx.textBaseline='middle';
+  octx.fillText(label, px, pad.t+7.5);
+  octx.restore();
+}
+
+function drawHeaterOverlay(){
+  var L=pad.l, R=W-pad.r, T=pad.t, B=H-pad.b;
+  // 목표값 가이드
+  if(isFinite(TARGET)){
+    var ty = sy(TARGET);
+    if(ty>=T && ty<=B){
+      octx.save();
+      octx.strokeStyle='#60747C'; octx.lineWidth=1; octx.setLineDash([6,4]);
+      octx.beginPath(); octx.moveTo(L,Math.round(ty)+0.5); octx.lineTo(R,Math.round(ty)+0.5); octx.stroke();
+      octx.setLineDash([]);
+      RUNS.forEach(function(r){
+        if(!r.visible) return;
+        var hit = crossing(r, TARGET);
+        if(!hit || !isFinite(hit[HX])) return;
+        var hx = sx(hit[HX]);
+        if(hx<L || hx>R) return;
+        octx.beginPath(); octx.arc(hx, ty, 5, 0, 6.2832);
+        octx.fillStyle='#fff'; octx.fill();
+        octx.strokeStyle=r.color; octx.lineWidth=2; octx.stroke();
+      });
+      octx.restore();
+    }
+  }
+  if(HOVER){
+    var r = RUNS[HOVER.r], row = r.rows[HOVER.i];
+    crosshair(sx(row[HX]), sy(row[HY]), '#14212B', fmtU(row[HX],HX), fmtU(row[HY],HY), r.color);
+  }
+}
+
+function draw(){ drawBase(); drawOverlay(); }
+
+/* =====================================================================
+   패널 — 진공
+   ===================================================================== */
+function updateCursor(){
+  if(!D || hoverI<0){
+    $('c-p').textContent='–'; $('c-t').textContent='–'; $('c-clock').textContent='–'; $('c-i').textContent='–';
+  }else{
+    $('c-p').textContent = fmtSci(D.y[hoverI],3);
+    $('c-t').textContent = fmtXFull(D.x[hoverI]);
+    $('c-clock').textContent = D.clock[hoverI] || '–';
+    $('c-i').textContent = (hoverI+1) + ' / ' + D.x.length;
+  }
+  updateMarkers();
+}
+function updateMarkers(){
+  if(!D){ return; }
+  $('m-a').textContent = markA<0 ? '–' : fmtSci(D.y[markA],3) + ' @ ' + fmtX(D.x[markA],1);
+  $('m-b').textContent = markB<0 ? '–' : fmtSci(D.y[markB],3) + ' @ ' + fmtX(D.x[markB],1);
+  if(markA>=0 && markB>=0){
+    var dt = D.x[markB]-D.x[markA];
+    var dp = D.y[markB]-D.y[markA];
+    $('d-t').textContent = fmtXFull(dt);
+    $('d-p').textContent = (dp>=0?'+':'') + fmtSci(dp,3);
+    $('d-ratio').textContent = D.y[markA]!==0 ? fmtNum(D.y[markB]/D.y[markA]) + '배' : '–';
+    if(dt!==0){
+      $('d-rate').textContent = (dp/dt>=0?'+':'') + fmtSci(dp/dt,3) + ' /s';
+      $('d-rateh').textContent = (dp/dt>=0?'+':'') + fmtSci(dp/dt*3600,3) + ' /h';
+    }else{
+      $('d-rate').textContent='–'; $('d-rateh').textContent='–';
+    }
+    $('m-hint').textContent = '누설률·펌핑 속도를 볼 때 두 지점의 변화율을 씁니다.';
+  }else{
+    $('d-t').textContent='–'; $('d-p').textContent='–'; $('d-ratio').textContent='–';
+    $('d-rate').textContent='–'; $('d-rateh').textContent='–';
+    $('m-hint').textContent = markA<0 ? '그래프를 클릭하면 A, 한 번 더 클릭하면 B가 놓입니다.' : 'B를 놓을 위치를 클릭하세요.';
+  }
+}
+function updateViewInfo(i0,i1){
+  $('v-x').textContent = fmtX(view.x0,1) + ' – ' + fmtX(view.x1,1);
+  $('v-y').textContent = fmtSci(view.y0,2) + ' – ' + fmtSci(view.y1,2);
+  $('v-n').textContent = (i1-i0+1).toLocaleString('ko-KR');
+}
+function makeVacSummary(){
+  var n = D.x.length;
+  var dur = D.x[n-1]-D.x[0];
+  var mn=Infinity, mx=-Infinity;
+  for(var i=0;i<n;i++){ if(D.y[i]<mn) mn=D.y[i]; if(D.y[i]>mx) mx=D.y[i]; }
+  VAC_SUMMARY =
+    '<span>포인트 <b>'+n.toLocaleString('ko-KR')+'</b></span>' +
+    '<span>기간 <b>'+fmtX(dur,0)+'</b></span>' +
+    '<span>최고 <b>'+fmtSci(mx,3)+'</b></span>' +
+    '<span>최저 <b>'+fmtSci(mn,3)+'</b></span>';
+}
+
+/* =====================================================================
+   패널 — 히터
+   ===================================================================== */
+function crossing(run, t){
+  var rows = run.rows;
+  for(var i=0;i<rows.length-1;i++){
+    var a=rows[i][HY], b=rows[i+1][HY];
+    if(!isFinite(a)||!isFinite(b)) continue;
+    if((a<=t && t<=b) || (b<=t && t<=a)){
+      var f = (b===a) ? 0 : (t-a)/(b-a);
+      var out = {};
+      ['A','T','V','W'].forEach(function(k){
+        var u=rows[i][k], v=rows[i+1][k];
+        out[k] = (isFinite(u)&&isFinite(v)) ? u+(v-u)*f : NaN;
+      });
+      return out;
+    }
+  }
+  return null;
+}
+function updateHeaterReadout(){
+  var ids = ['h-a','h-t','h-v','h-w','h-r','h-i'];
+  if(!HOVER){
+    $('h-run').textContent='–';
+    ids.forEach(function(id){ $(id).textContent='–'; });
+    $('h-note').hidden = true;
+    return;
+  }
+  var r = RUNS[HOVER.r], row = r.rows[HOVER.i];
+  var runEl = $('h-run');
+  runEl.innerHTML = '<span class="swatch" style="background:'+r.color+'"></span>' + esc(r.name);
+  $('h-a').textContent = fmtU(row.A,'A');
+  $('h-t').textContent = fmtU(row.T,'T');
+  $('h-v').textContent = fmtU(row.V,'V');
+  $('h-w').textContent = fmtU(row.W,'W');
+  $('h-r').textContent = (isFinite(row.V)&&isFinite(row.A)&&row.A!==0) ? fmtNum(row.V/row.A)+' Ω' : '–';
+  $('h-i').textContent = (HOVER.i+1) + ' / ' + r.rows.length + '번째 측정';
+  var nt = row.note || '';
+  $('h-note').hidden = !nt;
+  $('h-note').textContent = nt;
+}
+function renderRuns(){
+  var ul = $('runs');
+  ul.innerHTML = '';
+  $('h-prefix').textContent = RUN_PREFIX ? ' ' + RUN_PREFIX : '';
+  if(!RUNS.length){
+    var li0=document.createElement('li'); li0.className='empty';
+    li0.textContent='아직 불러온 측정이 없습니다.';
+    ul.appendChild(li0);
+    return;
+  }
+  RUNS.forEach(function(r, ri){
+    var li = document.createElement('li');
+    var label = /^\d+$/.test(r.short) ? '#' + r.short : r.short;
+    var maxT = isFinite(r.maxT) ? fmtNum(r.maxT)+' °C' : '–';
+    li.innerHTML =
+      '<label><input type="checkbox"'+(r.visible?' checked':'')+'>' +
+      '<span class="line" style="background:'+r.color+'"></span>' +
+      '<span>'+esc(label)+'</span>' +
+      '<span class="meta">'+r.rows.length+'점, 최고 '+maxT+'</span></label>' +
+      (r.notes.length ? '<div class="rnote">'+esc(r.notes.join(' / '))+'</div>' : '');
+    li.title = r.file;
+    li.querySelector('input').onchange = function(){
+      r.visible = this.checked;
+      if(HOVER && HOVER.r===ri && !r.visible){ HOVER=null; updateHeaterReadout(); }
+      renderTarget(); renderHeader(); draw();
+    };
+    ul.appendChild(li);
+  });
+}
+function renderTarget(){
+  $('tgt-label').textContent = '목표 ' + HCOLS[HY].label;
+  $('tgt-unit').textContent = HCOLS[HY].unit;
+  var dl = $('tgt-out');
+  dl.innerHTML = '';
+  if(!isFinite(TARGET)) return;
+  var others = ['A','T','V','W'].filter(function(k){ return k!==HY; });
+  RUNS.forEach(function(r){
+    if(!r.visible) return;
+    var hit = crossing(r, TARGET);
+    var dt = document.createElement('dt');
+    dt.innerHTML = '<span class="swatch" style="background:'+r.color+'"></span>' + esc(/^\d+$/.test(r.short)?'#'+r.short:r.short);
+    var dd = document.createElement('dd');
+    if(hit){
+      dd.textContent = others.map(function(k){ return fmtU(hit[k],k); }).join(', ');
+    }else{
+      var ys = r.rows.map(function(row){ return row[HY]; }).filter(isFinite);
+      var mx = Math.max.apply(null, ys), mn = Math.min.apply(null, ys);
+      dd.textContent = TARGET > mx ? '미도달 (최고 '+fmtU(mx,HY)+')' : '범위 아래 (최저 '+fmtU(mn,HY)+')';
+      dd.style.color = '#60747C';
+    }
+    dl.appendChild(dt); dl.appendChild(dd);
+  });
+}
+function shortNames(runs){
+  if(runs.length < 2){ runs.forEach(function(r){ r.short = r.name; }); return ''; }
+  var p = runs[0].name;
+  runs.forEach(function(r){ while(p && r.name.indexOf(p)!==0) p = p.slice(0,-1); });
+  var m = /^(.*\s)/.exec(p);
+  p = m ? m[1] : '';
+  runs.forEach(function(r){ r.short = r.name.slice(p.length).trim() || r.name; });
+  return p.trim();
+}
+function setRuns(runs){
+  runs.sort(function(a,b){ return a.name.localeCompare(b.name, undefined, {numeric:true}); });
+  runs.forEach(function(r,i){ r.color = RUN_COLORS[i % RUN_COLORS.length]; });
+  RUNS = runs;
+  RUN_PREFIX = shortNames(runs);
+  HOVER = null;
+  loadedOnce.heater = true;
+  var ext = heaterExtent();
+  if(MODE==='heater') view = ext; else saved.heater.view = ext;
+  renderRuns(); renderTarget(); updateHeaterReadout();
+  if(MODE==='heater'){ applyModeUI(); resize(); }
+}
+
+/* =====================================================================
+   머리글·모드 UI
+   ===================================================================== */
+var DZ = {
+  vacuum:{title:'CSV 파일을 여기에 놓으세요',
+          text:'시간·압력 열이 있는 로그 파일을 읽습니다. 헤더에 Elapsed_Time, Timestamp, Pressure 같은 이름이 있으면 자동으로 인식합니다.'},
+  heater:{title:'캘리브레이션 파일을 여기에 놓으세요',
+          text:'RTF·CSV·TXT를 읽습니다. 여러 파일을 한꺼번에 놓으면 겹쳐서 비교합니다. 첫 줄 머리글(A, degree, V, W)로 열을 알아봅니다.'}
+};
+var HINT = {
+  vacuum:'드래그 = 영역 확대 · 휠 = 가로 확대 · Shift+휠 = 세로 확대 · Shift+드래그 = 이동 · 더블클릭 = 초기화 · 클릭 = 마커',
+  heater:'점에 올리면 값 표시 · 드래그 = 영역 확대 · 휠 = 가로 확대 · Shift+휠 = 세로 확대 · Shift+드래그 = 이동 · 더블클릭 = 초기화'
+};
+function renderHeader(){
+  if(MODE==='vacuum'){
+    $('filename').textContent = D ? VAC_NAME : '파일 없음';
+    $('summary').innerHTML = D ? VAC_SUMMARY : '';
+  }else{
+    if(!RUNS.length){ $('filename').textContent='측정 없음'; $('summary').innerHTML=''; return; }
+    $('filename').textContent = RUN_PREFIX || '히터 캘리브레이션';
+    var vis = RUNS.filter(function(r){ return r.visible; });
+    var maxT=-Infinity, maxA=-Infinity, maxW=-Infinity;
+    vis.forEach(function(r){ r.rows.forEach(function(row){
+      if(row.T>maxT) maxT=row.T; if(row.A>maxA) maxA=row.A; if(row.W>maxW) maxW=row.W;
+    }); });
+    $('summary').innerHTML =
+      '<span>측정 <b>'+vis.length+' / '+RUNS.length+'</b></span>' +
+      (vis.length ? '<span>최고 온도 <b>'+fmtU(maxT,'T')+'</b></span>' +
+                    '<span>최대 전류 <b>'+fmtU(maxA,'A')+'</b></span>' +
+                    '<span>최대 전력 <b>'+fmtU(maxW,'W')+'</b></span>' : '');
+  }
+}
+function applyModeUI(){
+  $('tab-vacuum').setAttribute('aria-selected', String(MODE==='vacuum'));
+  $('tab-heater').setAttribute('aria-selected', String(MODE==='heater'));
+  var els = document.querySelectorAll('[data-mode]');
+  for(var i=0;i<els.length;i++) els[i].hidden = (els[i].getAttribute('data-mode') !== MODE);
+  $('dataset').hidden = !(MODE==='vacuum' && vacMenuReady);
+  $('dz-title').textContent = DZ[MODE].title;
+  $('dz-text').textContent = DZ[MODE].text;
+  $('hint').textContent = HINT[MODE];
+  $('dropzone').classList.toggle('hide', hasData());
+  wrap.setAttribute('aria-label', MODE==='vacuum' ? '시간에 따른 압력 그래프' : '히터 전류·온도 그래프');
+  if(MODE==='vacuum'){
+    var multi = D && D.ycols.length>1;
+    $('ycol').hidden = !multi; $('ycol-label').hidden = !multi;
+  }
+  renderHeader();
+}
+function setMode(m, force){
+  if(m===MODE && !force) return;
+  saved[MODE].view = view; saved[MODE].logY = logY;
+  MODE = m;
+  view = saved[m].view; logY = saved[m].logY;
+  drag = null;
+  try{
+    var u = new URL(location.href);
+    if(m==='heater') u.searchParams.set('mode','heater'); else u.searchParams.delete('mode');
+    history.replaceState(null, '', u.toString());
+  }catch(e){}
+  applyModeUI();
+  if(!loadedOnce[m]) startLoad(m);
+  resize();
+}
+function setStatus(msg, bad){
+  $('status').textContent = msg || '';
+  $('status').className = bad ? 'bad' : '';
+  $('err').textContent = msg || '';
+}
+
+/* =====================================================================
+   상호작용
+   ===================================================================== */
+function localPos(e){
+  var r = over.getBoundingClientRect();
+  return {x:e.clientX-r.left, y:e.clientY-r.top};
+}
+function inPlot(p){ return p.x>=pad.l && p.x<=W-pad.r && p.y>=pad.t && p.y<=H-pad.b; }
+
+function heaterPick(p){
+  var best=null, bd=26*26;
+  RUNS.forEach(function(r, ri){
+    if(!r.visible) return;
+    for(var i=0;i<r.rows.length;i++){
+      var x=r.rows[i][HX], y=r.rows[i][HY];
+      if(!isFinite(x)||!isFinite(y)) continue;
+      var dx=sx(x)-p.x, dy=sy(y)-p.y, d=dx*dx+dy*dy;
+      if(d<bd){ bd=d; best={r:ri, i:i}; }
+    }
+  });
+  return best;
+}
+function sameHover(a,b){ return (!a && !b) || (a && b && a.r===b.r && a.i===b.i); }
+
+over.addEventListener('pointermove', function(e){
+  if(!hasData() || !view) return;
+  var p = localPos(e);
+  if(drag){
+    if(Math.abs(p.x-drag.x0)>4 || Math.abs(p.y-drag.y0)>4) drag.moved=true;
+    if(drag.mode==='pan'){
+      var dx = ix(drag.x1) - ix(p.x);
+      view.x0 += dx; view.x1 += dx;
+      if(logY){
+        var f = Math.log10(iy(drag.y1)) - Math.log10(iy(p.y));
+        view.y0 = Math.pow(10, Math.log10(view.y0)+f);
+        view.y1 = Math.pow(10, Math.log10(view.y1)+f);
+      }else{
+        var dy = iy(drag.y1) - iy(p.y);
+        view.y0 += dy; view.y1 += dy;
+      }
+      drag.x1=p.x; drag.y1=p.y;
+      draw();
+      return;
+    }
+    drag.x1=p.x; drag.y1=p.y;
+    drawOverlay();
+    return;
+  }
+  if(MODE==='vacuum'){
+    if(inPlot(p)){
+      var i = nearestIndex(ix(p.x));
+      if(i!==hoverI){ hoverI=i; updateCursor(); drawOverlay(); }
+    }else if(hoverI!==-1){
+      hoverI=-1; updateCursor(); drawOverlay();
+    }
+  }else{
+    var h = inPlot(p) ? heaterPick(p) : null;
+    if(!sameHover(h, HOVER)){ HOVER=h; updateHeaterReadout(); drawOverlay(); }
+  }
+});
+over.addEventListener('pointerleave', function(){
+  if(drag) return;
+  if(MODE==='vacuum' && hoverI!==-1){ hoverI=-1; updateCursor(); drawOverlay(); }
+  if(MODE==='heater' && HOVER){ HOVER=null; updateHeaterReadout(); drawOverlay(); }
+});
+over.addEventListener('pointerdown', function(e){
+  if(!hasData() || !view) return;
+  var p = localPos(e);
+  if(!inPlot(p)) return;
+  over.setPointerCapture(e.pointerId);
+  drag = {mode: e.shiftKey?'pan':'zoom', x0:p.x, y0:p.y, x1:p.x, y1:p.y, moved:false};
+  wrap.focus({preventScroll:true});
+});
+over.addEventListener('pointerup', function(e){
+  if(!drag) return;
+  var p = localPos(e);
+  var d = drag; drag=null;
+  if(!d.moved){
+    if(MODE==='vacuum'){ placeMarker(nearestIndex(ix(p.x))); }
+    drawOverlay();
+    return;
+  }
+  if(d.mode==='zoom'){
+    var xa=ix(Math.min(d.x0,d.x1)), xb=ix(Math.max(d.x0,d.x1));
+    var ya=iy(Math.max(d.y0,d.y1)), yb=iy(Math.min(d.y0,d.y1));
+    if(xb-xa > 0 && yb>ya){ view.x0=xa; view.x1=xb; view.y0=ya; view.y1=yb; }
+  }
+  draw();
+});
+over.addEventListener('pointercancel', function(){ drag=null; drawOverlay(); });
+over.addEventListener('dblclick', function(){ if(hasData()){ view=currentExtent(); draw(); } });
+
+over.addEventListener('wheel', function(e){
+  if(!hasData() || !view) return;
+  e.preventDefault();
+  var p = localPos(e);
+  var f = Math.pow(1.0018, e.deltaY);
+  if(e.shiftKey || e.ctrlKey || e.metaKey){
+    var yc = iy(Math.min(Math.max(p.y,pad.t),H-pad.b));
+    if(logY){
+      var lc=Math.log10(yc);
+      view.y0=Math.pow(10, lc + (Math.log10(view.y0)-lc)*f);
+      view.y1=Math.pow(10, lc + (Math.log10(view.y1)-lc)*f);
+    }else{
+      view.y0 = yc + (view.y0-yc)*f;
+      view.y1 = yc + (view.y1-yc)*f;
+    }
+  }else{
+    var xc = ix(Math.min(Math.max(p.x,pad.l),W-pad.r));
+    var nx0 = xc + (view.x0-xc)*f;
+    var nx1 = xc + (view.x1-xc)*f;
+    if(nx1-nx0 > 1e-9){ view.x0=nx0; view.x1=nx1; }
+  }
+  draw();
+}, {passive:false});
+
+// 터치 핀치 (두 손가락, 가로)
+var touches = {};
+over.addEventListener('pointerdown', function(e){ if(e.pointerType==='touch') touches[e.pointerId]=localPos(e); });
+over.addEventListener('pointerup', function(e){ delete touches[e.pointerId]; });
+over.addEventListener('pointercancel', function(e){ delete touches[e.pointerId]; });
+over.addEventListener('pointermove', function(e){
+  if(e.pointerType!=='touch') return;
+  if(!(e.pointerId in touches)) return;
+  var ids = Object.keys(touches);
+  touches[e.pointerId] = localPos(e);
+  if(ids.length===2 && hasData() && view){
+    drag = null;
+    var a=touches[ids[0]], b=touches[ids[1]];
+    var dist = Math.abs(a.x-b.x);
+    if(over._pd && dist>4){
+      var f = over._pd/dist;
+      var xc = ix((a.x+b.x)/2);
+      view.x0 = xc + (view.x0-xc)*f;
+      view.x1 = xc + (view.x1-xc)*f;
+      draw();
+    }
+    over._pd = dist;
+  }else{
+    over._pd = null;
+  }
+});
+
+function placeMarker(i){
+  if(nextMark===0){ markA=i; markB=-1; nextMark=1; }
+  else { markB=i; nextMark=0; }
+  updateMarkers();
+}
+
+wrap.addEventListener('keydown', function(e){
+  if(!hasData()) return;
+  if(e.key==='r'||e.key==='R'){ view=currentExtent(); draw(); return; }
+  if(MODE!=='vacuum') return;
+  var step = e.shiftKey?20:1;
+  if(e.key==='ArrowLeft'){ hoverI = Math.max(0,(hoverI<0?nearestIndex(view.x1):hoverI)-step); e.preventDefault(); }
+  else if(e.key==='ArrowRight'){ hoverI = Math.min(D.x.length-1,(hoverI<0?nearestIndex(view.x0):hoverI)+step); e.preventDefault(); }
+  else if(e.key==='Enter'||e.key===' '){ if(hoverI>=0) placeMarker(hoverI); e.preventDefault(); }
+  else if(e.key==='Escape'){ markA=markB=-1; nextMark=0; updateMarkers(); }
+  else return;
+  if(hoverI>=0){
+    var x=D.x[hoverI];
+    if(x<view.x0 || x>view.x1){
+      var span=view.x1-view.x0;
+      view.x0=x-span/2; view.x1=x+span/2;
+    }
+  }
+  updateCursor();
+  draw();
+});
+
+/* ---------- 버튼 ---------- */
+$('tab-vacuum').onclick = function(){ setMode('vacuum'); };
+$('tab-heater').onclick = function(){ setMode('heater'); };
+$('reset').onclick = function(){ if(hasData()){ view=currentExtent(); draw(); } };
+$('logtoggle').onclick = function(){
+  logY=!logY;
+  this.setAttribute('aria-pressed', String(logY));
+  this.textContent = logY?'Y축 로그':'Y축 선형';
+  if(D){
+    var rg=visibleRange();
+    var ext=yExtent(rg[0],rg[1],logY);
+    view.y0=ext[0]; view.y1=ext[1];
+    draw();
+  }
+};
+$('clearmark').onclick = function(){ markA=markB=-1; nextMark=0; updateMarkers(); drawOverlay(); };
+$('png').onclick = function(){
+  if(!hasData()) return;
+  var c=document.createElement('canvas');
+  c.width=base.width; c.height=base.height;
+  var x=c.getContext('2d');
+  x.fillStyle='#fff'; x.fillRect(0,0,c.width,c.height);
+  x.drawImage(base,0,0); x.drawImage(over,0,0);
+  var a=document.createElement('a');
+  a.download = MODE==='vacuum'
+    ? ((VAC_NAME.replace(/\.[^.]+$/,'') || 'vacuum') + '_view.png')
+    : ('heater_calibration_' + HX + '-' + HY + '.png');
+  a.href=c.toDataURL('image/png');
+  a.click();
+};
+$('ycol').onchange = function(){
+  if(!D) return;
+  var col = D.ycols[parseInt(this.value,10)];
+  D.y = col.data;
+  D.yname = col.name;
+  view = vacExtent(logY);
+  markA=markB=-1; nextMark=0; hoverI=-1;
+  updateCursor(); draw();
+};
+$('hx').onchange = function(){ HX=this.value; HOVER=null; updateHeaterReadout(); if(RUNS.length){ view=heaterExtent(); } renderTarget(); draw(); };
+$('hy').onchange = function(){ HY=this.value; HOVER=null; updateHeaterReadout(); TARGET=NaN; $('tgt').value=''; if(RUNS.length){ view=heaterExtent(); } renderTarget(); draw(); };
+$('tgt').oninput = function(){ TARGET = this.value==='' ? NaN : parseFloat(this.value); renderTarget(); drawOverlay(); };
+$('runs-all').onclick = function(){ RUNS.forEach(function(r){ r.visible=true; }); renderRuns(); renderTarget(); renderHeader(); draw(); };
+$('runs-none').onclick = function(){ RUNS.forEach(function(r){ r.visible=false; }); HOVER=null; updateHeaterReadout(); renderRuns(); renderTarget(); renderHeader(); draw(); };
+
+/* =====================================================================
+   불러오기
+   ===================================================================== */
+var fileInput = $('file');
+$('pickbtn').onclick = function(){ fileInput.click(); };
+$('openlabel').addEventListener('keydown', function(e){
+  if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fileInput.click(); }
+});
+fileInput.onchange = function(){ if(this.files && this.files.length) handleFiles(this.files); this.value=''; };
+
+['dragenter','dragover'].forEach(function(t){
+  window.addEventListener(t, function(e){ e.preventDefault(); document.body.classList.add('dragging'); });
+});
+['dragleave','drop'].forEach(function(t){
+  window.addEventListener(t, function(e){
+    e.preventDefault();
+    if(t==='drop' || e.relatedTarget===null) document.body.classList.remove('dragging');
+  });
+});
+window.addEventListener('drop', function(e){
+  if(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+});
+
+function readFileBytes(file){
+  return new Promise(function(resolve, reject){
+    var fr = new FileReader();
+    fr.onload = function(){ resolve({name:file.name, bytes:new Uint8Array(fr.result)}); };
+    fr.onerror = function(){ reject(new Error(file.name + ' 읽기 실패')); };
+    fr.readAsArrayBuffer(file);
+  });
+}
+
+function handleFiles(fileList){
+  var files = Array.prototype.slice.call(fileList);
+  setStatus('읽는 중…');
+  Promise.all(files.map(readFileBytes)).then(function(items){
+    var runs = [], vac = null, bad = [];
+    items.forEach(function(it){
+      var text = bytesToText(it.bytes);
+      var kind = classify(text) || MODE;
+      if(kind==='heater'){
+        var run = parseHeaterText(text, it.name);
+        if(run.rows.length) runs.push(run); else bad.push(it.name);
+      }else if(!vac){
+        vac = {text:text, name:it.name};
+      }
+    });
+    setStatus(bad.length ? '측정값을 찾지 못한 파일: ' + bad.join(', ') : '', !!bad.length);
+    if(runs.length) setRuns(runs);
+    if(vac){
+      if(MODE!=='vacuum' && !runs.length) setMode('vacuum');
+      loadText(vac.text, vac.name);
+    }
+    if(runs.length && !vac && MODE!=='heater') setMode('heater');
+  }).catch(function(err){ setStatus(err.message, true); });
+}
+
+function loadText(text, name){
+  try{
+    var parsed = parseCSV(String(text));
+    D = parsed;
+    VAC_NAME = name;
+    makeVacSummary();
+    var sel=$('ycol');
+    sel.innerHTML='';
+    for(var i=0;i<D.ycols.length;i++){
+      var o=document.createElement('option');
+      o.value=String(i); o.textContent=D.ycols[i].name;
+      if(D.ycols[i].idx===D.ycur) o.selected=true;
+      sel.appendChild(o);
+    }
+    hoverI=-1; markA=markB=-1; nextMark=0;
+    loadedOnce.vacuum = true;
+    if(MODE==='vacuum'){
+      logY = true;
+      $('logtoggle').setAttribute('aria-pressed','true');
+      $('logtoggle').textContent='Y축 로그';
+      view = vacExtent(true);
+      updateCursor();
+      applyModeUI();
+      resize();
+    }else{
+      saved.vacuum.logY = true;
+      saved.vacuum.view = vacExtent(true);
+    }
+    if($('status').className!=='bad') setStatus('');
+  }catch(err){
+    setStatus('읽지 못했습니다 — ' + err.message, true);
+    applyModeUI();
+  }
+}
+
+function loadURL(url, name){
+  setStatus('불러오는 중…');
+  fetch(url).then(function(r){
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    return r.arrayBuffer();
+  }).then(function(buf){
+    var fname = name || decodeURIComponent(url.split('/').pop().split('?')[0]);
+    var text = bytesToText(new Uint8Array(buf));
+    if(classify(text)==='heater'){
+      var run = parseHeaterText(text, fname);
+      setRuns([run]);
+      setMode('heater');
+      setStatus('');
+    }else{
+      loadText(text, fname);
+    }
+  }).catch(function(e){
+    setStatus('주소에서 불러오지 못했습니다 — ' + e.message + '. 같은 서버에 있거나 외부 접근(CORS)이 허용된 주소여야 합니다.', true);
+    applyModeUI();
+  });
+}
+
+/* ---------- GitHub 폴더 자동 조회 ---------- */
+function detectRepo(){
+  if(GITHUB_REPO) return GITHUB_REPO;
+  var h = location.hostname;
+  if(!/\.github\.io$/i.test(h)) return null;
+  var owner = h.split('.')[0];
+  var seg = location.pathname.split('/').filter(Boolean);
+  var repo = (seg.length && !/\.html?$/i.test(seg[0])) ? seg[0] : h;
+  return owner + '/' + repo;
+}
+function listFolder(repo, folder, extRe, done){
+  var path = folder.split('/').map(encodeURIComponent).join('/');
+  fetch('https://api.github.com/repos/' + repo + '/contents/' + path)
+    .then(function(r){
+      if(r.status===404){ var e=new Error('\u2018'+folder+'\u2019 폴더를 찾지 못했습니다'); e.notFound=true; throw e; }
+      if(r.status===403) throw new Error('GitHub 조회 한도 초과(1시간 안에 풀림)');
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function(items){
+      var list = [];
+      for(var i=0;i<items.length;i++){
+        var it = items[i];
+        if(it.type==='file' && extRe.test(it.name)){
+          list.push({name: it.name.replace(/\.[^.]+$/,''), file: it.name, url: it.download_url});
+        }
+      }
+      done(list, null);
+    })
+    .catch(function(e){ done(null, e); });
+}
+function listFirstFolder(repo, folders, extRe, done){
+  var k = 0;
+  (function next(){
+    if(k >= folders.length){ var e=new Error('\u2018'+folders[0]+'\u2019 폴더를 찾지 못했습니다'); done(null, e); return; }
+    listFolder(repo, folders[k++], extRe, function(list, err){
+      if(list) done(list, null);
+      else if(err && err.notFound) next();
+      else done(null, err);
+    });
+  })();
+}
+
+function buildMenu(list, selected){
+  var sel = $('dataset');
+  sel.innerHTML = '';
+  vacMenuReady = list.length > 0;
+  for(var i=0;i<list.length;i++){
+    var o=document.createElement('option');
+    o.value=String(i); o.textContent=list[i].name;
+    if(i===selected) o.selected=true;
+    sel.appendChild(o);
+  }
+  sel.onchange = function(){
+    var d = list[parseInt(this.value,10)];
+    if(d) loadURL(d.url, d.file || d.name);
+  };
+  if(MODE==='vacuum') sel.hidden = !vacMenuReady;
+}
+
+function startLoad(m){
+  loadedOnce[m] = true;
+  var repo = detectRepo();
+
+  if(m==='vacuum'){
+    var finish = function(list){
+      var pick = 0, q = CSV_PARAM;
+      if(q){
+        for(var i=0;i<list.length;i++){
+          if(decodeURIComponent(list[i].url.split('/').pop()) === decodeURIComponent(q.split('/').pop())){ pick=i; break; }
+        }
+      }
+      buildMenu(list, pick);
+      if(q) loadURL(q, null);
+      else if(list.length) loadURL(list[0].url, list[0].file || list[0].name);
+      else applyModeUI();
+    };
+    if(repo){
+      setStatus('로그 목록을 불러오는 중…');
+      listFirstFolder(repo, VACUUM_FOLDERS, /\.(csv|tsv|txt)$/i, function(list, err){
+        if(list){
+          list.sort(function(x,y){ return x.name < y.name ? 1 : (x.name > y.name ? -1 : 0); });
+          setStatus('');
+          finish(list.concat(DATASETS));
+        }else{
+          setStatus('목록을 자동으로 못 불러왔습니다 — ' + err.message + '. 파일 열기로 직접 열 수 있습니다.', true);
+          finish(DATASETS);
+        }
+      });
+    }else{
+      finish(DATASETS);
+    }
+    return;
+  }
+
+  // 히터
+  if(!repo){ applyModeUI(); return; }
+  setStatus('캘리브레이션 목록을 불러오는 중…');
+  listFirstFolder(repo, HEATER_FOLDERS, /\.(rtf|csv|tsv|txt)$/i, function(list, err){
+    if(!list){ setStatus('목록을 자동으로 못 불러왔습니다 — ' + err.message + '. 파일 열기로 직접 열 수 있습니다.', true); applyModeUI(); return; }
+    if(!list.length){ setStatus('\u2018'+HEATER_FOLDERS[0]+'\u2019 폴더에 파일이 없습니다.', true); applyModeUI(); return; }
+    Promise.all(list.map(function(f){
+      return fetch(f.url).then(function(r){
+        if(!r.ok) throw new Error('HTTP ' + r.status);
+        return r.arrayBuffer();
+      }).then(function(buf){
+        return parseHeaterText(bytesToText(new Uint8Array(buf)), f.file);
+      }).catch(function(){ return {failed:f.file}; });
+    })).then(function(results){
+      var ok = [], fail = [];
+      results.forEach(function(r){
+        if(r.failed) fail.push(r.failed);
+        else if(r.rows.length) ok.push(r);
+        else fail.push(r.file);
+      });
+      setRuns(ok);
+      setStatus(fail.length ? '읽지 못한 파일: ' + fail.join(', ') : '', !!fail.length);
+      applyModeUI();
+    });
+  });
+}
+
+/* ---------- 시작 ---------- */
+function boot(){
+  renderRuns(); renderTarget();
+  var params = null;
+  try{ params = new URLSearchParams(location.search); }catch(e){}
+  CSV_PARAM = params ? params.get('csv') : null;
+  var startMode = (params && params.get('mode')==='heater') ? 'heater' : 'vacuum';
+
+  var baked = document.getElementById('baked-csv');
+  if(baked && baked.textContent.trim().length > 20){
+    var text = baked.textContent, nm = baked.getAttribute('data-name') || '포함된 데이터';
+    loadedOnce.vacuum = loadedOnce.heater = true;
+    if(classify(text)==='heater'){
+      setRuns([parseHeaterText(text, nm)]);
+      setMode('heater', true);
+    }else{
+      setMode('vacuum', true);
+      loadText(text, nm);
+    }
+    return;
+  }
+  setMode(startMode, true);
+}
+
+new ResizeObserver(function(){ resize(); }).observe(wrap);
+boot();
+</script>
+</body>
+</html>
